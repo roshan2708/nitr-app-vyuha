@@ -50,22 +50,22 @@ class DefaultFirebaseOptions {
   }
 
   static const FirebaseOptions web = FirebaseOptions(
-    apiKey: 'AIzaSyD6bEcIkEvCf1vdyu9EnLZutao8O_2jaHk',
-    appId: '1:322778540049:web:aa7bd90c8d05f7241729b0',
-    messagingSenderId: '322778540049',
-    projectId: 'vyuha-1cdb8',
-    authDomain: 'vyuha-1cdb8.firebaseapp.com',
-    databaseURL: 'https://vyuha-1cdb8-default-rtdb.firebaseio.com',
-    storageBucket: 'vyuha-1cdb8.firebasestorage.app',
-    measurementId: 'G-YS3CFE3FXP',
+    apiKey: 'AIzaSyA8XupM160jQykTaNEsUyXtCG9pFm4x6PI',
+    appId: '1:309845711634:web:8cbfee5b0c70424317b1cb',
+    messagingSenderId: '309845711634',
+    projectId: 'nitrvyuha',
+    authDomain: 'nitrvyuha.firebaseapp.com',
+    databaseURL: 'https://nitrvyuha-default-rtdb.firebaseio.com',
+    storageBucket: 'nitrvyuha.firebasestorage.app',
+    measurementId: 'G-D96S14SPCJ',
   );
 
   static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'AIzaSyDe4xuC-khloM0-OjwQeE_cJF7P2l-hWms',
-    appId: '1:322778540049:android:71658cfd56018e561729b0',
-    messagingSenderId: '322778540049',
-    projectId: 'vyuha-1cdb8',
-    databaseURL: 'https://vyuha-1cdb8-default-rtdb.firebaseio.com',
-    storageBucket: 'vyuha-1cdb8.firebasestorage.app',
+    apiKey: 'AIzaSyCRXsbQJjvWyK6qS8Cy55Um95PxVlQXf3Q',
+    appId: '1:309845711634:android:52b76711c72add5a17b1cb',
+    messagingSenderId: '309845711634',
+    projectId: 'nitrvyuha',
+    databaseURL: 'https://nitrvyuha-default-rtdb.firebaseio.com',
+    storageBucket: 'nitrvyuha.firebasestorage.app',
   );
 }
