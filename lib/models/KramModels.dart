@@ -1,4 +1,3 @@
-
 import 'package:flutter/material.dart';
 
 // --- Flowchart Models ---
@@ -11,7 +10,6 @@ class KramFlowElement {
   double x;
   double y;
   final FlowShapeType type;
-  // List of IDs this element connects TO
   List<String> connections;
 
   KramFlowElement({
@@ -55,7 +53,7 @@ class KramNote {
   double y;
   final String authorName;
   final String authorId;
-  final int colorIndex; // For sticky note color
+  final int colorIndex;
 
   KramNote({
     required this.id,

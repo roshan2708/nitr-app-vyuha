@@ -1,4 +1,4 @@
-
+import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:get/get.dart';
 import 'package:uuid/uuid.dart';
@@ -8,14 +8,21 @@ import 'package:vyuha/services/GeminiService.dart';
 
 class KramController extends GetxController {
   final String roomId;
-  KramController(this.roomId);
+  final String nodeId; // Specific Node ID
+  final String initialTopic; // Topic to generate if empty
+
+  KramController({
+    required this.roomId,
+    required this.nodeId,
+    required this.initialTopic,
+  });
 
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final gemini = GeminiService();
   
   // Auth Info
   final uid = Get.find<AuthController>().uid;
-  String _userName = 'User'; // Will be fetched
+  String _userName = 'User';
 
   // Collections
   late final CollectionReference flowRef;
@@ -25,17 +32,21 @@ class KramController extends GetxController {
   final RxList<KramFlowElement> flowElements = <KramFlowElement>[].obs;
   final RxList<KramNote> stickyNotes = <KramNote>[].obs;
   
-  // AI Explain State
-  final RxString selectedNodeForExplanation = ''.obs;
-  final RxString aiExplanationResult = ''.obs;
-  final RxBool isExplaining = false.obs;
+  final RxBool isGenerating = false.obs;
+  final RxString statusMessage = ''.obs;
 
   @override
   void onInit() {
     super.onInit();
-    final roomRef = _firestore.collection('rooms').doc(roomId);
-    flowRef = roomRef.collection('kram_flowchart');
-    notesRef = roomRef.collection('kram_notes');
+    // Data is now nested under the specific Node
+    final nodeRef = _firestore
+        .collection('rooms')
+        .doc(roomId)
+        .collection('nodes')
+        .doc(nodeId);
+        
+    flowRef = nodeRef.collection('kram_flowchart');
+    notesRef = nodeRef.collection('kram_notes');
     
     _fetchUserName();
     _listenFlowchart();
@@ -51,19 +62,117 @@ class KramController extends GetxController {
     } catch (_) {}
   }
 
-  // --- AI Logic ---
+  // --- AI Flowchart Generation ---
 
-  Future<void> explainNodeText(String text) async {
-    if (text.isEmpty) return;
-    isExplaining.value = true;
-    aiExplanationResult.value = ''; // Clear previous
+  Future<void> generateFlowchart() async {
+    if (flowElements.isNotEmpty) {
+      // Don't overwrite existing work without explicit clear, 
+      // but for now, we just return or maybe append. 
+      // Let's return to avoid accidental data loss.
+      statusMessage.value = "Canvas not empty. Clear to regenerate.";
+      return;
+    }
+
+    isGenerating.value = true;
+    statusMessage.value = "AI is designing flowchart...";
+
     try {
-      final result = await gemini.explainNode(text);
-      aiExplanationResult.value = result;
+      // 1. Ask Gemini for Structure (Mocking the prompt string logic here)
+      // You would normally pass this prompt to gemini.generateText(prompt)
+      final prompt = """
+      Create a flowchart for the process: "$initialTopic".
+      Return ONLY valid JSON. No markdown formatting.
+      Structure:
+      {
+        "steps": [
+          {"id": "1", "text": "Start", "type": "oval"},
+          {"id": "2", "text": "Step description", "type": "rectangle"},
+          {"id": "3", "text": "Decision?", "type": "diamond"}
+        ],
+        "connections": [
+          {"from": "1", "to": "2"},
+          {"from": "2", "to": "3"}
+        ]
+      }
+      Make it detailed with at least 5-7 steps.
+      """;
+
+      // Call your Gemini Service
+      // NOTE: Ensure your GeminiService has a method that returns String
+      final jsonString = await gemini.explainNode(prompt); 
+      
+      // Clean up string if it contains markdown code blocks
+      String cleanJson = jsonString.replaceAll('```json', '').replaceAll('```', '').trim();
+      
+      final data = jsonDecode(cleanJson);
+      final List<dynamic> steps = data['steps'];
+      final List<dynamic> connections = data['connections'];
+
+      // 2. Convert to Firestore Batches
+      final batch = _firestore.batch();
+      
+      // Simple Layout Algorithm (Vertical Flow)
+      double currentY = 100.0;
+      double centerX = 300.0; // Assume canvas centerish
+      
+      Map<String, KramFlowElement> elementMap = {};
+
+      for (var step in steps) {
+        final String rawId = step['id'].toString();
+        final String firestoreId = Uuid().v4(); // Generate clean ID
+        
+        // Store mapping from JSON ID to Firestore ID
+        // (This is a simplified approach, in reality, use a map)
+        // For simplicity, we just use the index if IDs are numeric, 
+        // but here we must map properly.
+        
+        FlowShapeType type = FlowShapeType.rectangle;
+        if (step['type'] == 'oval') type = FlowShapeType.oval;
+        if (step['type'] == 'diamond') type = FlowShapeType.diamond;
+
+        final el = KramFlowElement(
+          id: firestoreId,
+          text: step['text'],
+          x: centerX,
+          y: currentY,
+          type: type,
+          connections: [],
+        );
+        
+        // Add to map for connection linking later (using rawId as key is tricky 
+        // if we change ID, so we need a lookup map)
+        elementMap[rawId] = el;
+        
+        currentY += 150.0; // Spacing
+      }
+
+      // 3. Link Connections
+      for (var conn in connections) {
+        final fromId = conn['from'].toString();
+        final toId = conn['to'].toString();
+        
+        if (elementMap.containsKey(fromId) && elementMap.containsKey(toId)) {
+          final fromEl = elementMap[fromId]!;
+          final toEl = elementMap[toId]!;
+          
+          fromEl.connections.add(toEl.id);
+        }
+      }
+
+      // 4. Commit to DB
+      for (var el in elementMap.values) {
+        final docRef = flowRef.doc(el.id);
+        batch.set(docRef, el.toMap());
+      }
+
+      await batch.commit();
+      statusMessage.value = "";
+
     } catch (e) {
-      aiExplanationResult.value = "Failed to explain: $e";
+      statusMessage.value = "Error generating: $e";
+      print(e);
     } finally {
-      isExplaining.value = false;
+      isGenerating.value = false;
     }
   }
 
@@ -91,20 +200,21 @@ class KramController extends GetxController {
   }
 
   Future<void> updateFlowElementPosition(String id, double x, double y) async {
-    // Optimistic update for smoothness
+    // Optimistic update
     final index = flowElements.indexWhere((e) => e.id == id);
     if (index != -1) {
+      final old = flowElements[index];
       flowElements[index] = KramFlowElement(
-        id: flowElements[index].id,
-        text: flowElements[index].text,
+        id: old.id,
+        text: old.text,
         x: x,
         y: y,
-        type: flowElements[index].type,
-        connections: flowElements[index].connections,
+        type: old.type,
+        connections: old.connections
       );
       flowElements.refresh();
     }
-    // Fire and forget update
+    // Fire and forget
     await flowRef.doc(id).update({'x': x, 'y': y});
   }
 
@@ -117,7 +227,7 @@ class KramController extends GetxController {
   }
 
   Future<void> toggleConnection(String fromId, String toId) async {
-    if (fromId == toId) return; // No self loops for simplicity
+    if (fromId == toId) return;
 
     final doc = await flowRef.doc(fromId).get();
     if (!doc.exists) return;
@@ -132,6 +242,15 @@ class KramController extends GetxController {
     }
 
     await flowRef.doc(fromId).update({'connections': conns});
+  }
+
+  Future<void> clearCanvas() async {
+     final batch = _firestore.batch();
+     final snaps = await flowRef.get();
+     for(var doc in snaps.docs) {
+       batch.delete(doc.reference);
+     }
+     await batch.commit();
   }
 
   // --- Sticky Notes Logic ---
@@ -160,7 +279,6 @@ class KramController extends GetxController {
   }
 
   Future<void> updateNotePosition(String id, double x, double y) async {
-    // Optimistic
     final index = stickyNotes.indexWhere((n) => n.id == id);
     if (index != -1) {
        final old = stickyNotes[index];
