@@ -1,11 +1,12 @@
+// FILE: lib/controllers/VyuhaController.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:get/get.dart';
 import 'package:uuid/uuid.dart';
 import 'package:vyuha/controllers/AuthController.dart';
 import 'dart:math';
+import 'dart:async'; // Added for TimeoutException
 
 import 'package:vyuha/models/NodeModel.dart';
-// Import the new collaborator model
 import 'package:vyuha/models/CollaboratorModel.dart';
 import 'package:vyuha/services/GeminiService.dart';
 
@@ -22,15 +23,21 @@ class VyuhaController extends GetxController {
   // State list to hold full collaborator details
   final RxList<CollaboratorModel> collaborators = <CollaboratorModel>[].obs;
 
-  // --- NEW: State list for banned user details ---
+  // State list for banned user details
   final RxList<CollaboratorModel> bannedUsers = <CollaboratorModel>[].obs;
 
   // State for AI Limits
   final RxInt aiUsesRemaining = 15.obs;
   final Rx<DateTime?> aiUseResetTime = Rx<DateTime?>(null);
+  
+  // UI State for AI operations
+  final RxBool isPerformingAI = false.obs;
+  
   static const int _maxAIUses = 15;
 
-  final gemini = GeminiService();
+  // REMOVED: final gemini = GeminiService(); 
+  // We will instantiate this locally to prevent history accumulation.
+  
   final uid = Get.find<AuthController>().uid;
   late final CollectionReference roomNodesRef;
   late final DocumentReference roomRef;
@@ -44,11 +51,9 @@ class VyuhaController extends GetxController {
     _loadRoomInfo();
   }
 
-  // MODIFIED: This method now also loads collaborator details, banned user details, and AI limits
   void _loadRoomInfo() {
-    roomRef.snapshots().listen((snap) async { // Make async
+    roomRef.snapshots().listen((snap) async {
       if (snap.exists) {
-        // Safer data access
         final data = snap.data() as Map<String, dynamic>? ?? {};
 
         roomTitle.value = data['title'] ?? 'Untitled';
@@ -60,9 +65,9 @@ class VyuhaController extends GetxController {
         final collaboratorIds = List<String>.from(data['collaborators'] ?? []);
         await _updateCollaborators(owner, collaboratorIds);
         
-        // --- NEW: Banned User Logic ---
+        // --- Banned User Logic ---
         final bannedUserIds = List<String>.from(data['bannedUsers'] ?? []);
-        await _updateBannedUsers(bannedUserIds); // Call new helper
+        await _updateBannedUsers(bannedUserIds);
 
         // --- AI Limit Logic ---
         final int aiUses = data['aiUses'] ?? 0;
@@ -70,38 +75,28 @@ class VyuhaController extends GetxController {
         final now = DateTime.now();
 
         if (aiUseReset == null || aiUseReset.toDate().isBefore(now)) {
-          // Reset time is in the past, so reset the counter
           aiUsesRemaining.value = _maxAIUses;
           aiUseResetTime.value = null; 
-          // If uses were > 0, we should reset them in Firestore.
-          // Do this only if aiUses is not already 0 to avoid writes.
           if (aiUses > 0) {
              roomRef.update({'aiUses': 0, 'aiUseReset': null});
           }
         } else {
-          // Reset time is in the future
           aiUsesRemaining.value = (_maxAIUses - aiUses).clamp(0, _maxAIUses);
           aiUseResetTime.value = aiUseReset.toDate();
         }
-
       }
     });
   }
 
-  // Helper method to fetch user details from UIDs
   Future<void> _updateCollaborators(String ownerId, List<String> collaboratorIds) async {
-    // Use a Set to automatically handle duplicates (e.g., if owner is also in list)
     final allIds = {ownerId, ...collaboratorIds};
-    
     final List<CollaboratorModel> loadedCollaborators = [];
 
-    // Fetch each user's document
     for (final id in allIds) {
       if (id.isEmpty) continue;
       try {
         final userSnap = await _firestore.collection('users').doc(id).get();
         if (userSnap.exists) {
-          // Create model, marking the owner
           loadedCollaborators.add(
             CollaboratorModel.fromFirestore(userSnap, isOwner: id == ownerId)
           );
@@ -111,18 +106,15 @@ class VyuhaController extends GetxController {
       }
     }
 
-    // Sort the list to show the Owner first, then alphabetically
     loadedCollaborators.sort((a, b) {
       if (a.isOwner) return -1;
       if (b.isOwner) return 1;
       return a.name.toLowerCase().compareTo(b.name.toLowerCase());
     });
 
-    // Update the observable list
     collaborators.assignAll(loadedCollaborators);
   }
 
-  // --- NEW: Helper method to fetch banned user details ---
   Future<void> _updateBannedUsers(List<String> bannedUserIds) async {
     final List<CollaboratorModel> loadedBannedUsers = [];
     
@@ -131,7 +123,6 @@ class VyuhaController extends GetxController {
       try {
         final userSnap = await _firestore.collection('users').doc(id).get();
         if (userSnap.exists) {
-          // Create model, they are never the owner
           loadedBannedUsers.add(
             CollaboratorModel.fromFirestore(userSnap, isOwner: false)
           );
@@ -141,15 +132,12 @@ class VyuhaController extends GetxController {
       }
     }
 
-    // Sort the list alphabetically
     loadedBannedUsers.sort((a, b) {
       return a.name.toLowerCase().compareTo(b.name.toLowerCase());
     });
 
-    // Update the observable list
     bannedUsers.assignAll(loadedBannedUsers);
   }
-
 
   void _listenNodes() {
     roomNodesRef.snapshots().listen((snap) {
@@ -176,7 +164,6 @@ class VyuhaController extends GetxController {
   }
 
   Future<void> deleteNode(String id) async {
-    // Delete this node and all its children recursively
     final children = nodes.where((n) => n.parentId == id).toList();
     for (var child in children) {
       await deleteNode(child.id);
@@ -192,62 +179,49 @@ class VyuhaController extends GetxController {
     await batch.commit();
   }
 
-  // UPDATED: Method to remove a collaborator and add them to the ban list
   Future<void> removeCollaborator(String userId) async {
-    // This check is important! Only the owner can remove people.
     if (!isOwner.value) {
       throw Exception('Only the owner can remove collaborators.');
     }
-    // Prevent the owner from being removed from the collaborator list
     final owner = (await roomRef.get()).get('owner');
     if (userId == owner) {
        throw Exception('Cannot remove the owner.');
     }
 
     try {
-      // Use FieldValue.arrayRemove to safely remove the UID from the list
-      // AND add them to the bannedUsers list to prevent re-joining.
       await roomRef.update({
         'collaborators': FieldValue.arrayRemove([userId]),
-        'bannedUsers': FieldValue.arrayUnion([userId]) // ADDED THIS LINE
+        'bannedUsers': FieldValue.arrayUnion([userId])
       });
-      // The _loadRoomInfo listener will automatically see this change
-      // and call _updateCollaborators, which updates the UI.
     } catch (e) {
       print('Error removing collaborator: $e');
       throw Exception('Failed to remove collaborator.');
     }
   }
 
-  // --- NEW: Method to unban a user ---
   Future<void> unblockCollaborator(String userId) async {
-    // Only the owner can unblock people.
     if (!isOwner.value) {
       throw Exception('Only the owner can manage the ban list.');
     }
 
     try {
-      // Use FieldValue.arrayRemove to safely remove the UID from the banned list
       await roomRef.update({
         'bannedUsers': FieldValue.arrayRemove([userId])
       });
-      // The _loadRoomInfo listener will automatically see this change
-      // and call _updateBannedUsers, which updates the UI.
-      // Note: This does NOT re-add them as a collaborator.
-      // It just allows them to join again with the passkey.
     } catch (e) {
       print('Error unblocking collaborator: $e');
       throw Exception('Failed to unblock collaborator.');
     }
   }
 
-  // MODIFIED: This method now checks limits and runs a transaction on success
   Future<void> expandWithAI({
     required String topic,
     int count = 5,
     String? parentId,
   }) async {
-    // 1. Check local state first for a fast failure
+    // 1. Check for re-entry or exhaustion
+    if (isPerformingAI.value) return; 
+    
     if (aiUsesRemaining.value <= 0) {
       String resetMsg = 'Resets soon.';
       if (aiUseResetTime.value != null) {
@@ -257,14 +231,23 @@ class VyuhaController extends GetxController {
       throw Exception('AI limit reached. $resetMsg');
     }
 
+    isPerformingAI.value = true;
+
     try {
-      // 2. Call the external service
-      final ideas = await gemini.generateIdeas(topic, count: count);
+      // 2. Instantiate SERVICE LOCALLY
+      // This ensures we get a fresh session and DO NOT send previous history.
+      // This prevents "Token Exhaustion" caused by growing context windows.
+      final gemini = GeminiService(); 
+
+      // 3. Add Timeout
+      // Prevents "infinite hang" if the service loops or network stalls.
+      final ideas = await gemini.generateIdeas(topic, count: count)
+          .timeout(const Duration(seconds: 15));
+
       if (ideas.isEmpty) {
-        return; // Nothing to add
+        return; 
       }
 
-      // 3. Run a transaction to update the count atomically
       await _firestore.runTransaction((transaction) async {
         final snap = await transaction.get(roomRef);
         final data = snap.data() as Map<String, dynamic>? ?? {};
@@ -277,49 +260,58 @@ class VyuhaController extends GetxController {
         Timestamp newReset;
 
         if (currentReset == null || currentReset.toDate().isBefore(now)) {
-          // Timer is expired or not set, so this is the first use of the new period
           newUses = 1;
           newReset = Timestamp.fromDate(now.add(Duration(hours: 24)));
         } else {
-          // Timer is active, increment uses
           newUses = currentUses + 1;
-          newReset = currentReset; // Keep existing reset time
+          newReset = currentReset;
         }
 
-        // Final check inside transaction to ensure we don't go over
         if (newUses > _maxAIUses) {
-          throw Exception('AI limit reached. Resets at ${newReset.toDate()}.');
+          throw Exception('AI limit reached during transaction.');
         }
 
-        // Update the room document with new usage stats
         transaction.update(roomRef, {
           'aiUses': newUses,
           'aiUseReset': newReset,
         });
       });
       
-      // 4. If transaction and API call were successful, add the nodes
       for (var idea in ideas) {
         await addNode(idea, parentId: parentId ?? 'root');
       }
 
     } catch (e) {
       print('Error in expandWithAI: $e');
-      // Re-throw the exception to be caught by the UI
+      if (e is TimeoutException) {
+         throw Exception('AI request timed out. Please try again.');
+      }
       if (e.toString().contains('AI limit reached')) {
         rethrow;
       }
-      throw Exception('Failed to generate AI ideas');
+      throw Exception('Failed to generate AI ideas: $e');
+    } finally {
+      isPerformingAI.value = false;
     }
   }
 
-  // Generate a 6-digit passkey
+  Future<String> explainNodeWithAI(String topic) async {
+     try {
+       // Instantiate locally for statelessness
+       final gemini = GeminiService();
+       return await gemini.generateExplanation(topic)
+           .timeout(const Duration(seconds: 20));
+     } catch (e) {
+       print('Error in explainNodeWithAI: $e');
+       rethrow;
+     }
+  }
+
   String _generatePasskey() {
     final random = Random();
     return List.generate(6, (_) => random.nextInt(10)).join();
   }
 
-  // Initialize passkey for a new Vyuha (called by owner)
   Future<void> initializePasskey() async {
     if (passkey.value.isEmpty) {
       final newPasskey = _generatePasskey();
@@ -328,7 +320,6 @@ class VyuhaController extends GetxController {
     }
   }
 
-  // UPDATED: This method now checks the ban list before joining
   Future<String> joinVyuhaWithPasskey(String inputPasskey) async {
     try {
       final snap = await _firestore
@@ -345,35 +336,28 @@ class VyuhaController extends GetxController {
       final roomId = roomDoc.id;
       final owner = roomDoc.get('owner') ?? '';
       final collaborators = List<String>.from(roomDoc.get('collaborators') ?? []);
-      
-      // NEW: Get the list of banned UIDs
       final bannedUsers = List<String>.from(roomDoc.get('bannedUsers') ?? []);
 
-      // Check if user is already the owner
       if (owner == uid) {
         throw Exception('Already Owner');
       }
 
-      // Check if user is already a collaborator
       if (collaborators.contains(uid)) {
         throw Exception('Already Joined');
       }
 
-      // NEW: Check if the user is in the ban list
       if (bannedUsers.contains(uid)) {
         throw Exception('Banned');
       }
 
-      // If not, add user to collaborators
       await _firestore.collection('rooms').doc(roomId).update({
         'collaborators': FieldValue.arrayUnion([uid])
       });
 
-      return roomId; // Return the room ID on success
+      return roomId;
       
     } catch (e) {
       print('Error joining Vyuha: $e');
-      // Re-throw the error to be handled by the UI
       if (e is Exception && e.toString().contains('Not Found')) {
         throw Exception('No Vyuha found with this passkey');
       }
@@ -383,18 +367,16 @@ class VyuhaController extends GetxController {
       if (e is Exception && e.toString().contains('Already Joined')) {
         throw Exception('You are already a collaborator');
       }
-      // NEW: Handle banned user
       if (e is Exception && e.toString().contains('Banned')) {
         throw Exception('You are not allowed to join this Vyuha');
       }
-      // This is the most likely error: Missing Firestore Index
       if (e.toString().contains('requires an index')) {
            throw Exception('Database setup incomplete. Please contact support.');
       }
       throw Exception('Failed to join Vyuha');
     }
   }
-  // Check if user has access to this Vyuha
+
   Future<bool> hasAccess() async {
     try {
       final snap = await roomRef.get();
@@ -403,9 +385,6 @@ class VyuhaController extends GetxController {
       final owner = snap.get('owner') ?? '';
       final collaborators = List<String>.from(snap.get('collaborators') ?? []);
       
-      // Note: We don't need to check the ban list here, because if a user
-      // is banned, they are also removed from the 'collaborators' list.
-      // This check remains correct.
       return owner == uid || collaborators.contains(uid);
     } catch (e) {
       print('Error checking access: $e');
@@ -413,7 +392,6 @@ class VyuhaController extends GetxController {
     }
   }
 
-  // Analytics methods
   int getDepth() {
     if (nodes.isEmpty) return 0;
     int maxDepth = 0;
@@ -447,11 +425,6 @@ class VyuhaController extends GetxController {
 
   int getUniqueAuthors() {
     final authors = nodes.map((n) => n.authorId).toSet();
-    // NEW: We should use the collaborators list as the source of truth
-    // for unique authors *present* in the room, not just who has added a node.
-    // But the original function counted nodes, so let's stick to that.
-    // However, `collaborators.length` is a better metric for "people in room".
-    // The user's original function was `getUniqueAuthors()`, so we'll keep its logic.
     return authors.length;
   }
 
@@ -471,7 +444,6 @@ class VyuhaController extends GetxController {
     buffer.writeln('Total Ideas: ${nodes.length}');
     buffer.writeln('\n${'=' * 50}\n');
     
-    // Export as hierarchical tree
     final rootNodes = nodes.where((n) => n.parentId.isEmpty || n.parentId == 'root').toList();
     for (var node in rootNodes) {
       _exportNodeRecursive(node, buffer, 0);
@@ -490,7 +462,6 @@ class VyuhaController extends GetxController {
     }
   }
 
-  // Get nodes by parent for tree building
   List<NodeModel> getChildren(String parentId) {
     return nodes.where((n) => n.parentId == parentId).toList();
   }

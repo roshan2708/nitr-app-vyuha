@@ -6,23 +6,19 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart' hide Node;
 import 'package:graphview/GraphView.dart';
-import 'package:cloud_firestore/cloud_firestore.dart'; // Needed for direct Firestore creation
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:vyuha/controllers/VyuhaController.dart';
 import 'package:vyuha/models/NodeModel.dart';
 
-// Imports for web-only features
 import 'package:flutter/foundation.dart' show kIsWeb;
 
-// Imports for image capture
 import 'dart:ui' as ui;
 import 'package:flutter/rendering.dart';
 import 'dart:typed_data';
 
-// Import the platform helper
 import 'package:vyuha/helpers/platform_helper.dart';
 import 'package:vyuha/models/CollaboratorModel.dart';
 
-// --- IMPORTS FOR SHARING ---
 import 'package:share_plus/share_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'dart:io';
@@ -38,7 +34,6 @@ class VyuhaScreen extends StatefulWidget {
 }
 
 class _VyuhaScreenState extends State<VyuhaScreen> {
-  // --- STATE VARIABLES ---
   final TransformationController _transformationController =
       TransformationController();
   final GlobalKey _graphKey = GlobalKey();
@@ -97,7 +92,6 @@ class _VyuhaScreenState extends State<VyuhaScreen> {
     super.dispose();
   }
 
-  // --- MAIN BUILD METHOD ---
   @override
   Widget build(BuildContext context) {
     if (widget.roomId.isEmpty) {
@@ -210,39 +204,33 @@ class _VyuhaScreenState extends State<VyuhaScreen> {
     );
   }
 
-  // --- HELPER: Generate Passkey ---
   String _generatePasskey() {
     final random = Random();
     return List.generate(6, (_) => random.nextInt(10)).join();
   }
 
-  // --- HELPER: Generate Kram Logic ---
   Future<void> _generateKramForNode(NodeModel node) async {
     _showCustomNotification('Creating Kram for "${node.text}"...');
 
     try {
       final firestore = FirebaseFirestore.instance;
-      // You might want to access the current user ID.
-      // VyuhaController usually has 'uid'.
       final ctrl = Get.find<VyuhaController>(tag: widget.roomId);
       final uid = ctrl.uid;
 
-      // 1. Create the new Room document
       final newRoomRef = await firestore.collection('rooms').add({
         'title': '${node.text} Kram',
         'owner': uid,
         'passkey': _generatePasskey(),
-        'collaborators': [], // Start empty, or copy from current room if desired
+        'collaborators': [],
         'bannedUsers': [],
         'createdAt': FieldValue.serverTimestamp(),
         'type': 'kram',
         'generationTopic': node.text,
         'generationContext': 'Derived from Vyuha node: ${node.text}',
-        'parentVyuhaId': widget.roomId, // Optional linkage
-        'parentNodeId': node.id,        // Optional linkage
+        'parentVyuhaId': widget.roomId,
+        'parentNodeId': node.id,
       });
 
-      // 2. Navigate there
       Get.toNamed('/kram/${newRoomRef.id}');
 
     } catch (e) {
@@ -250,8 +238,6 @@ class _VyuhaScreenState extends State<VyuhaScreen> {
       _showCustomNotification('Failed to generate Kram. $e', isError: true);
     }
   }
-
-  // --- UI EVENT HANDLERS ---
 
   void _toggleFullScreen() {
     if (!kIsWeb) return;
@@ -273,9 +259,11 @@ class _VyuhaScreenState extends State<VyuhaScreen> {
       _isNotificationError = isError;
       _notificationTimer?.cancel();
       _notificationTimer = Timer(Duration(seconds: 3), () {
-        setState(() {
-          _notificationMessage = null;
-        });
+        if (mounted) {
+          setState(() {
+            _notificationMessage = null;
+          });
+        }
       });
     });
   }
@@ -295,7 +283,6 @@ class _VyuhaScreenState extends State<VyuhaScreen> {
     _searchFocusNode.unfocus();
   }
 
-  // --- ACTION BUILDER ---
   List<Widget> _buildActions(VyuhaController ctrl, Color iconColor) {
     return [
       _buildToolbarButton(
@@ -438,8 +425,6 @@ class _VyuhaScreenState extends State<VyuhaScreen> {
       padding: EdgeInsets.all(10),
     );
   }
-
-  // --- DIALOGS & OVERLAYS ---
 
   Future<void> _showShareDialog(BuildContext ctx, VyuhaController ctrl) async {
     final dialogBg = _isDarkMode ? Color(0xFF1A1A1A) : Color(0xFFFDFDFD);
@@ -719,7 +704,6 @@ class _VyuhaScreenState extends State<VyuhaScreen> {
     );
   }
 
-  // --- (MODIFIED) Node Options Dialog ---
   Future<void> _showNodeOptions(BuildContext ctx, VyuhaController ctrl,
       NodeModel node, Offset tapPosition) async {
     final isMyNode = node.authorId == ctrl.uid;
@@ -747,14 +731,12 @@ class _VyuhaScreenState extends State<VyuhaScreen> {
           color: Color(0xFF6B7FFF),
           value: 'ai_expand',
         ),
-        // --- NEW OPTION: AI Explain ---
         _buildContextMenuItem(
           icon: Icons.auto_stories_outlined,
           label: 'AI Explain',
-          color: Color(0xFF4CAF50),
+          color: Color(0xFF6B7FFF),
           value: 'ai_explain',
         ),
-        // --- Generate Kram ---
         _buildContextMenuItem(
           icon: Icons.account_tree_outlined,
           label: 'Generate Kram',
@@ -789,7 +771,6 @@ class _VyuhaScreenState extends State<VyuhaScreen> {
         _showAIExpandDialog(ctx, ctrl,
             parentId: node.id, topic: node.text);
         break;
-      // --- NEW CASE ---
       case 'ai_explain':
         _showAIExplainDialog(ctx, ctrl, node);
         break;
@@ -811,8 +792,7 @@ class _VyuhaScreenState extends State<VyuhaScreen> {
     required IconData icon,
     required String label,
     required Color color,
-    required String value,
-  }) {
+    required String value,  }) {
     return PopupMenuItem<String>(
       value: value,
       child: Row(
@@ -1076,8 +1056,12 @@ class _VyuhaScreenState extends State<VyuhaScreen> {
             onPressed: () => Get.back(),
             child: Text('Cancel', style: TextStyle(color: subText)),
           ),
-          Obx(() => ElevatedButton.icon(
-                icon: Icon(Icons.auto_awesome, size: 18),
+          Obx(() {
+            final canPress = ctrl.aiUsesRemaining.value > 0 && !ctrl.isPerformingAI.value;
+            return ElevatedButton.icon(
+                icon: ctrl.isPerformingAI.value 
+                  ? Container(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                  : Icon(Icons.auto_awesome, size: 18),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Color(0xFF6B7FFF),
                   disabledBackgroundColor: Color(0xFF6B7FFF).withOpacity(0.5),
@@ -1085,7 +1069,7 @@ class _VyuhaScreenState extends State<VyuhaScreen> {
                     borderRadius: BorderRadius.circular(8),
                   ),
                 ),
-                onPressed: ctrl.aiUsesRemaining.value > 0
+                onPressed: canPress
                     ? () async {
                         final t = topicCtrl.text.trim();
                         final count = int.tryParse(countCtrl.text) ?? 5;
@@ -1113,18 +1097,16 @@ class _VyuhaScreenState extends State<VyuhaScreen> {
                         }
                       }
                     : null,
-                label: Text('Generate', style: TextStyle(color: Colors.white)),
-              ))
+                label: Text(ctrl.isPerformingAI.value ? 'Generating...' : 'Generate', style: TextStyle(color: Colors.white)),
+              );
+          })
         ],
       ),
     );
   }
 
-  // --- NEW AI EXPLAIN DIALOG LOGIC ---
-
   Future<void> _showAIExplainDialog(
       BuildContext ctx, VyuhaController ctrl, NodeModel node) async {
-    // Beautiful Glassmorphic Dialog
     final dialogBg = _isDarkMode ? Color(0xFF1E1E1E) : Colors.white;
     final mainText = _isDarkMode ? Colors.white : Colors.black;
 
@@ -1329,10 +1311,6 @@ class _VyuhaScreenState extends State<VyuhaScreen> {
   }
 }
 
-// -------------------------------------------------------------------
-// --- NEW WIDGET: AI Explain Dialog Content ---
-// -------------------------------------------------------------------
-
 class _AIExplainDialogContent extends StatefulWidget {
   final NodeModel node;
   final bool isDarkMode;
@@ -1362,11 +1340,7 @@ class _AIExplainDialogContentState extends State<_AIExplainDialogContent> {
 
   Future<void> _fetchReport() async {
     try {
-      // -----------------------------------------------------------
-      // TODO: Replace this simulated call with your actual controller call
-      // Example: final report = await widget.ctrl.explainNodeWithAI(widget.node.text);
-      // -----------------------------------------------------------
-      final report = await _simulateAIExplanation(widget.node.text);
+      final report = await widget.ctrl.explainNodeWithAI(widget.node.text);
       
       if (mounted) {
         setState(() {
@@ -1377,38 +1351,18 @@ class _AIExplainDialogContentState extends State<_AIExplainDialogContent> {
     } catch (e) {
       if (mounted) {
         setState(() {
-          _error = e.toString();
+          _error = e.toString().replaceFirst("Exception: ", "");
           _isLoading = false;
         });
       }
     }
   }
 
-  // Helper to simulate AI delay and response (Remove this when connecting real backend)
-  Future<String> _simulateAIExplanation(String topic) async {
-    await Future.delayed(Duration(seconds: 2));
-    return """
-### Deep Dive: $topic
-
-**Overview**
-This concept acts as a pivotal node in your current thought structure. Exploring "$topic" reveals several underlying dimensions that could expand your project significantly.
-
-**Key Perspectives**
-1. **Structural Context**: Within the hierarchy of your Vyuha, this node bridges the gap between abstract planning and concrete execution.
-2. **Potential Expansion**: Consider breaking this down into sub-components like "Implementation Strategy", "Resource Allocation", and "Risk Factors".
-
-**Actionable Insight**
-To maximize the value of this idea, try to connect it with at least two disparate nodes in your graph to find novel intersections.
-
-*Generated by AI Insight*
-""";
-  }
-
   @override
   Widget build(BuildContext context) {
     final mainText = widget.isDarkMode ? Colors.white : Colors.black;
     final subText = widget.isDarkMode ? Colors.white54 : Colors.black54;
-    final accentColor = Color(0xFF4CAF50); // Greenish for Explain
+    final accentColor = Color(0xFF6B7FFF);
 
     return Column(
       children: [
@@ -1501,7 +1455,7 @@ To maximize the value of this idea, try to connect it with at least two disparat
                           color: mainText.withOpacity(0.9),
                           fontSize: 15,
                           height: 1.6,
-                          fontFamily: 'Roboto', // Or your app's font
+                          fontFamily: 'Roboto', 
                         ),
                       ),
                     ),
@@ -1551,10 +1505,6 @@ To maximize the value of this idea, try to connect it with at least two disparat
     );
   }
 }
-
-// -------------------------------------------------------------------
-// --- UI Components ---
-// -------------------------------------------------------------------
 
 class _MobileAppBar extends StatelessWidget implements PreferredSizeWidget {
   final VyuhaController ctrl;
@@ -2128,31 +2078,31 @@ class _GraphWidget extends StatelessWidget {
       ..orientation = orientation;
 
     return InteractiveViewer(
-  transformationController: transformationController,
-  constrained: false,
-  boundaryMargin: EdgeInsets.all(500),
-  minScale: 0.1,
-  maxScale: 4.0,
-  panEnabled: true,
-  scaleEnabled: true,
-  child: RepaintBoundary(
-    key: graphKey,
-    child: GraphView(
-      graph: graph,
-      algorithm: BuchheimWalkerAlgorithm(
-        builder,
-        TreeEdgeRenderer(builder),
+      transformationController: transformationController,
+      constrained: false,
+      boundaryMargin: EdgeInsets.all(500),
+      minScale: 0.1,
+      maxScale: 4.0,
+      panEnabled: true,
+      scaleEnabled: true,
+      child: RepaintBoundary(
+        key: graphKey,
+        child: GraphView(
+          graph: graph,
+          algorithm: BuchheimWalkerAlgorithm(
+            builder,
+            TreeEdgeRenderer(builder),
+          ),
+          paint: Paint()
+            ..color =
+                isDarkMode ? const Color(0xFF9ECAD6) : Color(0xFF007A9B)
+            ..strokeWidth = 1.5
+            ..style = PaintingStyle.stroke,
+          builder: (Node node) => node.key!.value as Widget,
+          animated: false,
+        ),
       ),
-      paint: Paint()
-        ..color =
-            isDarkMode ? const Color(0xFF9ECAD6) : Color(0xFF007A9B)
-        ..strokeWidth = 1.5
-        ..style = PaintingStyle.stroke,
-      builder: (Node node) => node.key!.value as Widget,
-      animated: false,
-    ),
-  ),
-);
+    );
   }
 }
 

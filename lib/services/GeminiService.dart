@@ -6,17 +6,16 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 class GeminiService {
   final _firestore = FirebaseFirestore.instance;
 
-  // --- FIX IS HERE: Using v1beta and gemini-2.5-flash ---
+  // Updated to Gemini 2.5 Flash (Stable)
   final String endpoint =
       "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=";
 
   /// Fetches the Gemini API config from Firestore.
   /// Returns null if the document doesn't exist or data is missing.
   Future<Map<String, String>?> _fetchGeminiConfig(
-      {bool isFlowchart = false}) async {
+      {bool isFlowchart = false, bool isExplanation = false}) async {
     try {
-      final doc =
-          await _firestore.collection('config').doc('gemini').get();
+      final doc = await _firestore.collection('config').doc('gemini').get();
 
       if (!doc.exists || doc.data() == null) {
         print("Error: 'config/gemini' document not found in Firestore.");
@@ -25,14 +24,33 @@ class GeminiService {
 
       final data = doc.data()!;
       final apiKey = data['apiKey'] as String?;
-      
-      // (MODIFIED) Select the correct prompt template
-      final String promptKey = isFlowchart ? 'flowchartPromptTemplate' : 'promptTemplate';
+
+      // Determine which prompt template to fetch
+      String promptKey = 'promptTemplate'; // Default for ideas
+      if (isFlowchart) {
+        promptKey = 'flowchartPromptTemplate';
+      } else if (isExplanation) {
+        promptKey = 'explainPromptTemplate';
+      }
+
       final promptTemplate = data[promptKey] as String?;
 
-      if (apiKey == null || promptTemplate == null) {
-        print("Error: 'apiKey' or '$promptKey' missing from config doc.");
+      if (apiKey == null) {
+        print("Error: 'apiKey' missing from config doc.");
         return null;
+      }
+
+      // If specific template is missing, return a default or null depending on strictness
+      if (promptTemplate == null) {
+         // Fallback for explanation if not in DB to ensure feature works
+         if (isExplanation) {
+           return {
+             'apiKey': apiKey,
+             'promptTemplate': "Explain the concept of '{topic}' in the context of project planning and brainstorming. Provide an overview, key perspectives, and an actionable insight. Keep it concise."
+           };
+         }
+         print("Error: '$promptKey' missing from config doc.");
+         return null;
       }
 
       return {
@@ -47,7 +65,7 @@ class GeminiService {
 
   Future<List<String>> generateIdeas(String topic, {int count = 5}) async {
     // 1. Fetch config from Firestore
-    final config = await _fetchGeminiConfig(isFlowchart: false); // isFlowchart: false
+    final config = await _fetchGeminiConfig();
     if (config == null) {
       return []; // Return empty if config failed to load
     }
@@ -99,9 +117,12 @@ class GeminiService {
         final unique = <String>{};
         final out = <String>[];
         for (var l in lines) {
-          if (!unique.contains(l)) {
-            unique.add(l);
-            out.add(l);
+          // Cleanup markdown list items if present (e.g., "* Idea" or "1. Idea")
+          var cleanLine = l.replaceAll(RegExp(r'^[\*\-\d\.]+\s+'), '');
+          
+          if (!unique.contains(cleanLine) && cleanLine.isNotEmpty) {
+            unique.add(cleanLine);
+            out.add(cleanLine);
             if (out.length >= count) break;
           }
         }
@@ -116,12 +137,62 @@ class GeminiService {
     }
   }
 
-  // --- NEW METHOD FOR KRAM ---
+  /// Generates an explanation for a node.
+  Future<String> generateExplanation(String topic) async {
+    // 1. Fetch config (flag isExplanation: true)
+    final config = await _fetchGeminiConfig(isExplanation: true);
+    if (config == null) {
+      throw Exception("Configuration or API Key missing.");
+    }
+
+    final apiKey = config['apiKey']!;
+    final promptTemplate = config['promptTemplate']!;
+
+    // 2. Build prompt
+    final prompt = promptTemplate.replaceAll('{topic}', topic);
+
+    // 3. Build request
+    final url = Uri.parse(endpoint + apiKey);
+    final body = {
+      "contents": [
+        {
+          "parts": [
+            {"text": prompt}
+          ]
+        }
+      ],
+    };
+
+    // 4. API Call
+    try {
+      final res = await http.post(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode(body),
+      );
+
+      if (res.statusCode == 200) {
+        final map = json.decode(res.body);
+        if (map['candidates'] != null &&
+            map['candidates'][0]['content'] != null &&
+            map['candidates'][0]['content']['parts'] != null) {
+          final parts = map['candidates'][0]['content']['parts'];
+          final text = parts.map((p) => p['text']).join('\n');
+          return text;
+        }
+        throw Exception("Empty response from AI");
+      } else {
+        throw Exception("AI Error: ${res.statusCode}");
+      }
+    } catch (e) {
+      throw Exception("Failed to fetch explanation: $e");
+    }
+  }
 
   /// Generates a flowchart as a JSON string.
   Future<String> generateKramFlowchart(String topic, String context) async {
     // 1. Fetch config from Firestore
-    final config = await _fetchGeminiConfig(isFlowchart: true); // isFlowchart: true
+    final config = await _fetchGeminiConfig(isFlowchart: true);
     if (config == null) {
       throw Exception("Flowchart configuration not found in Firestore.");
     }
@@ -132,7 +203,7 @@ class GeminiService {
     // 2. Build the prompt from the template
     final prompt = promptTemplate
         .replaceAll('{topic}', topic)
-        .replaceAll('{context}', context.replaceAll('"', r'\"')); // Escape quotes
+        .replaceAll('{context}', context.replaceAll('"', r'\"'));
 
     // 3. Build the request
     final url = Uri.parse(endpoint + apiKey);
@@ -157,17 +228,15 @@ class GeminiService {
       if (res.statusCode == 200) {
         final map = json.decode(res.body);
         
-        // Extract the raw text from the response
         if (map['candidates'] != null &&
             map['candidates'][0]['content'] != null &&
             map['candidates'][0]['content']['parts'] != null) {
           final parts = map['candidates'][0]['content']['parts'];
           String rawJson = parts.map((p) => p['text']).join('');
           
-          // Clean up the response (Gemini sometimes wraps in markdown)
+          // Clean up the response
           rawJson = rawJson.replaceAll("```json", "").replaceAll("```", "").trim();
           
-          // Return the raw JSON string
           return rawJson;
         }
         
