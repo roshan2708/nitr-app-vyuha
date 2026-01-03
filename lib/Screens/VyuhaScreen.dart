@@ -41,8 +41,8 @@ class _VyuhaScreenState extends State<VyuhaScreen> {
   // --- STATE VARIABLES ---
   final TransformationController _transformationController =
       TransformationController();
-  final GlobalKey _graphKey = GlobalKey(); 
-  final PlatformHelper _platformHelper = PlatformHelper(); 
+  final GlobalKey _graphKey = GlobalKey();
+  final PlatformHelper _platformHelper = PlatformHelper();
   double _currentScale = 1.0;
   int _orientation = BuchheimWalkerConfiguration.ORIENTATION_TOP_BOTTOM;
 
@@ -57,14 +57,14 @@ class _VyuhaScreenState extends State<VyuhaScreen> {
 
   Offset? _tapPosition;
 
-  bool _isFullscreen = false; 
+  bool _isFullscreen = false;
 
   @override
   void initState() {
     super.initState();
     if (widget.roomId.isEmpty) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        Get.offAllNamed('/home'); 
+        Get.offAllNamed('/home');
       });
       return;
     }
@@ -119,8 +119,8 @@ class _VyuhaScreenState extends State<VyuhaScreen> {
     return SafeArea(
       child: WillPopScope(
         onWillPop: () async {
-          Get.offAllNamed('/home'); 
-          return false; 
+          Get.offAllNamed('/home');
+          return false;
         },
         child: Scaffold(
           backgroundColor: scaffoldBg,
@@ -175,7 +175,7 @@ class _VyuhaScreenState extends State<VyuhaScreen> {
                     isDarkMode: _isDarkMode,
                     actions: actions,
                   ),
-                if (!_isSearching) 
+                if (!_isSearching)
                   _ZoomControls(
                     isDarkMode: _isDarkMode,
                     currentScale: _currentScale,
@@ -219,10 +219,10 @@ class _VyuhaScreenState extends State<VyuhaScreen> {
   // --- HELPER: Generate Kram Logic ---
   Future<void> _generateKramForNode(NodeModel node) async {
     _showCustomNotification('Creating Kram for "${node.text}"...');
-    
+
     try {
       final firestore = FirebaseFirestore.instance;
-      // You might want to access the current user ID. 
+      // You might want to access the current user ID.
       // VyuhaController usually has 'uid'.
       final ctrl = Get.find<VyuhaController>(tag: widget.roomId);
       final uid = ctrl.uid;
@@ -237,14 +237,14 @@ class _VyuhaScreenState extends State<VyuhaScreen> {
         'createdAt': FieldValue.serverTimestamp(),
         'type': 'kram',
         'generationTopic': node.text,
-        'generationContext': 'Derived from Vyuha node: ${node.text}', 
+        'generationContext': 'Derived from Vyuha node: ${node.text}',
         'parentVyuhaId': widget.roomId, // Optional linkage
         'parentNodeId': node.id,        // Optional linkage
       });
 
       // 2. Navigate there
       Get.toNamed('/kram/${newRoomRef.id}');
-      
+
     } catch (e) {
       print('Error generating Kram: $e');
       _showCustomNotification('Failed to generate Kram. $e', isError: true);
@@ -356,7 +356,7 @@ class _VyuhaScreenState extends State<VyuhaScreen> {
       Obx(() {
         if (ctrl.isOwner.value) {
           return _buildToolbarButton(
-            Icons.group_outlined, 
+            Icons.group_outlined,
             'Manage Collaborators',
             iconColor,
             () => _showCollaboratorDialog(context, ctrl),
@@ -665,7 +665,7 @@ class _VyuhaScreenState extends State<VyuhaScreen> {
                     itemCount: ctrl.bannedUsers.length,
                     itemBuilder: (context, index) {
                       final bannedUser = ctrl.bannedUsers[index];
-                      
+
                       return ListTile(
                         leading: Icon(Icons.block, color: subText),
                         title: Text(
@@ -747,7 +747,14 @@ class _VyuhaScreenState extends State<VyuhaScreen> {
           color: Color(0xFF6B7FFF),
           value: 'ai_expand',
         ),
-        // --- NEW OPTION: Generate Kram ---
+        // --- NEW OPTION: AI Explain ---
+        _buildContextMenuItem(
+          icon: Icons.auto_stories_outlined,
+          label: 'AI Explain',
+          color: Color(0xFF4CAF50),
+          value: 'ai_explain',
+        ),
+        // --- Generate Kram ---
         _buildContextMenuItem(
           icon: Icons.account_tree_outlined,
           label: 'Generate Kram',
@@ -783,6 +790,9 @@ class _VyuhaScreenState extends State<VyuhaScreen> {
             parentId: node.id, topic: node.text);
         break;
       // --- NEW CASE ---
+      case 'ai_explain':
+        _showAIExplainDialog(ctx, ctrl, node);
+        break;
       case 'generate_kram':
         _generateKramForNode(node);
         break;
@@ -1037,7 +1047,7 @@ class _VyuhaScreenState extends State<VyuhaScreen> {
                 controller: countCtrl,
                 style: TextStyle(color: mainText),
                 decoration: InputDecoration(
-                  labelText: 'Number of ideas (1-9)', 
+                  labelText: 'Number of ideas (1-9)',
                   labelStyle: TextStyle(color: subText),
                   enabledBorder: OutlineInputBorder(
                     borderSide: BorderSide(color: borderColor),
@@ -1053,7 +1063,7 @@ class _VyuhaScreenState extends State<VyuhaScreen> {
                   FilteringTextInputFormatter.digitsOnly,
                   LengthLimitingTextInputFormatter(1),
                   TextInputFormatter.withFunction((oldValue, newValue) {
-                    if (newValue.text == '0') return oldValue; 
+                    if (newValue.text == '0') return oldValue;
                     return newValue;
                   }),
                 ],
@@ -1102,11 +1112,65 @@ class _VyuhaScreenState extends State<VyuhaScreen> {
                               isError: true);
                         }
                       }
-                    : null, 
+                    : null,
                 label: Text('Generate', style: TextStyle(color: Colors.white)),
               ))
         ],
       ),
+    );
+  }
+
+  // --- NEW AI EXPLAIN DIALOG LOGIC ---
+
+  Future<void> _showAIExplainDialog(
+      BuildContext ctx, VyuhaController ctrl, NodeModel node) async {
+    // Beautiful Glassmorphic Dialog
+    final dialogBg = _isDarkMode ? Color(0xFF1E1E1E) : Colors.white;
+    final mainText = _isDarkMode ? Colors.white : Colors.black;
+
+    showGeneralDialog(
+      context: ctx,
+      barrierDismissible: true,
+      barrierLabel: 'Dismiss',
+      barrierColor: Colors.black.withOpacity(0.5),
+      transitionDuration: Duration(milliseconds: 300),
+      pageBuilder: (context, anim1, anim2) {
+        return Center(
+          child: Container(
+            width: kIsWeb ? 600 : MediaQuery.of(context).size.width * 0.9,
+            height: MediaQuery.of(context).size.height * 0.7,
+            decoration: BoxDecoration(
+              color: dialogBg,
+              borderRadius: BorderRadius.circular(24),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.3),
+                  blurRadius: 20,
+                  spreadRadius: 5,
+                )
+              ],
+              border: Border.all(
+                color: _isDarkMode ? Colors.white10 : Colors.black12,
+                width: 1,
+              ),
+            ),
+            child: _AIExplainDialogContent(
+              node: node,
+              isDarkMode: _isDarkMode,
+              ctrl: ctrl,
+            ),
+          ),
+        );
+      },
+      transitionBuilder: (context, anim1, anim2, child) {
+        return Transform.scale(
+          scale: CurvedAnimation(parent: anim1, curve: Curves.easeOutBack).value,
+          child: FadeTransition(
+            opacity: anim1,
+            child: child,
+          ),
+        );
+      },
     );
   }
 
@@ -1266,6 +1330,229 @@ class _VyuhaScreenState extends State<VyuhaScreen> {
 }
 
 // -------------------------------------------------------------------
+// --- NEW WIDGET: AI Explain Dialog Content ---
+// -------------------------------------------------------------------
+
+class _AIExplainDialogContent extends StatefulWidget {
+  final NodeModel node;
+  final bool isDarkMode;
+  final VyuhaController ctrl;
+
+  const _AIExplainDialogContent({
+    Key? key,
+    required this.node,
+    required this.isDarkMode,
+    required this.ctrl,
+  }) : super(key: key);
+
+  @override
+  State<_AIExplainDialogContent> createState() => _AIExplainDialogContentState();
+}
+
+class _AIExplainDialogContentState extends State<_AIExplainDialogContent> {
+  String? _report;
+  bool _isLoading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchReport();
+  }
+
+  Future<void> _fetchReport() async {
+    try {
+      // -----------------------------------------------------------
+      // TODO: Replace this simulated call with your actual controller call
+      // Example: final report = await widget.ctrl.explainNodeWithAI(widget.node.text);
+      // -----------------------------------------------------------
+      final report = await _simulateAIExplanation(widget.node.text);
+      
+      if (mounted) {
+        setState(() {
+          _report = report;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _error = e.toString();
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  // Helper to simulate AI delay and response (Remove this when connecting real backend)
+  Future<String> _simulateAIExplanation(String topic) async {
+    await Future.delayed(Duration(seconds: 2));
+    return """
+### Deep Dive: $topic
+
+**Overview**
+This concept acts as a pivotal node in your current thought structure. Exploring "$topic" reveals several underlying dimensions that could expand your project significantly.
+
+**Key Perspectives**
+1. **Structural Context**: Within the hierarchy of your Vyuha, this node bridges the gap between abstract planning and concrete execution.
+2. **Potential Expansion**: Consider breaking this down into sub-components like "Implementation Strategy", "Resource Allocation", and "Risk Factors".
+
+**Actionable Insight**
+To maximize the value of this idea, try to connect it with at least two disparate nodes in your graph to find novel intersections.
+
+*Generated by AI Insight*
+""";
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final mainText = widget.isDarkMode ? Colors.white : Colors.black;
+    final subText = widget.isDarkMode ? Colors.white54 : Colors.black54;
+    final accentColor = Color(0xFF4CAF50); // Greenish for Explain
+
+    return Column(
+      children: [
+        // Header
+        Container(
+          padding: EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+          decoration: BoxDecoration(
+            border: Border(
+                bottom: BorderSide(
+                    color: widget.isDarkMode ? Colors.white12 : Colors.black12)),
+          ),
+          child: Row(
+            children: [
+              Container(
+                padding: EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: accentColor.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(Icons.auto_stories_outlined,
+                    color: accentColor, size: 24),
+              ),
+              SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'AI Insight',
+                      style: TextStyle(
+                        color: mainText,
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    Text(
+                      'Analyzing "${widget.node.text}"',
+                      style: TextStyle(
+                        color: subText,
+                        fontSize: 13,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                icon: Icon(Icons.close, color: subText),
+                onPressed: () => Navigator.of(context).pop(),
+              )
+            ],
+          ),
+        ),
+
+        // Body
+        Expanded(
+          child: _isLoading
+              ? Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      CircularProgressIndicator(
+                        color: accentColor,
+                        strokeWidth: 3,
+                      ),
+                      SizedBox(height: 20),
+                      Text(
+                        'Synthesizing report...',
+                        style: TextStyle(color: subText, fontSize: 14),
+                      ),
+                    ],
+                  ),
+                )
+              : _error != null
+                  ? Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(24.0),
+                        child: Text(
+                          'Failed to generate report: $_error',
+                          style: TextStyle(color: Colors.red.shade300),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    )
+                  : SingleChildScrollView(
+                      padding: EdgeInsets.all(24),
+                      child: SelectableText(
+                        _report!,
+                        style: TextStyle(
+                          color: mainText.withOpacity(0.9),
+                          fontSize: 15,
+                          height: 1.6,
+                          fontFamily: 'Roboto', // Or your app's font
+                        ),
+                      ),
+                    ),
+        ),
+
+        // Footer
+        if (!_isLoading && _error == null)
+          Container(
+            padding: EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+            decoration: BoxDecoration(
+              border: Border(
+                  top: BorderSide(
+                      color:
+                          widget.isDarkMode ? Colors.white12 : Colors.black12)),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                TextButton.icon(
+                  onPressed: () {
+                    if (_report != null) {
+                      Clipboard.setData(ClipboardData(text: _report!));
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('Report copied to clipboard')),
+                      );
+                    }
+                  },
+                  icon: Icon(Icons.copy, size: 18, color: subText),
+                  label: Text('Copy', style: TextStyle(color: subText)),
+                ),
+                SizedBox(width: 12),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: accentColor,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                  ),
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: Text('Done', style: TextStyle(color: Colors.white)),
+                ),
+              ],
+            ),
+          )
+      ],
+    );
+  }
+}
+
+// -------------------------------------------------------------------
 // --- UI Components ---
 // -------------------------------------------------------------------
 
@@ -1292,7 +1579,7 @@ class _MobileAppBar extends StatelessWidget implements PreferredSizeWidget {
       foregroundColor: iconColor,
       elevation: 0.5,
       centerTitle: false,
-      automaticallyImplyLeading: false, 
+      automaticallyImplyLeading: false,
       title: Obx(() {
         final String fullTitle = ctrl.roomTitle.value;
         final String title = fullTitle.length > 20
@@ -1387,7 +1674,7 @@ class _TopLeftControls extends StatelessWidget {
             if (isLargeScreen) ...[
               InkWell(
                 onTap: () {
-                  Get.offAllNamed('/home'); 
+                  Get.offAllNamed('/home');
                 },
                 borderRadius: BorderRadius.circular(8),
                 child: Padding(
@@ -1842,7 +2129,7 @@ class _GraphWidget extends StatelessWidget {
 
     return InteractiveViewer(
   transformationController: transformationController,
-  constrained: false, 
+  constrained: false,
   boundaryMargin: EdgeInsets.all(500),
   minScale: 0.1,
   maxScale: 4.0,
