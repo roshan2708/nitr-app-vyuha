@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart' hide Node;
 import 'package:graphview/GraphView.dart';
+import 'package:vyuha/Screens/KramScreen.dart';
 import 'package:vyuha/controllers/VyuhaController.dart';
 import 'package:vyuha/models/NodeModel.dart';
 
@@ -365,6 +366,20 @@ class _VyuhaScreenState extends State<VyuhaScreen> {
               ],
             ),
           ),
+          PopupMenuItem(
+      value: 'kram',
+      child: Row(
+        children: [
+          Icon(Icons.hub_outlined, size: 18, color: Color(0xFFF4991A)),
+          SizedBox(width: 12),
+          Text('Open Kram',
+              style: TextStyle(
+                  color: _isDarkMode
+                      ? Colors.white70
+                      : Colors.black87, fontWeight: FontWeight.bold)),
+        ],
+      ),
+    ),
           // Existing Export
           PopupMenuItem(
             value: 'export',
@@ -381,6 +396,20 @@ class _VyuhaScreenState extends State<VyuhaScreen> {
             ),
           ),
           PopupMenuItem(
+      value: 'kram',
+      child: Row(
+        children: [
+          Icon(Icons.hub_outlined, size: 18, color: Color(0xFFF4991A)),
+          SizedBox(width: 12),
+          Text('Open Kram',
+              style: TextStyle(
+                  color: _isDarkMode
+                      ? Colors.white70
+                      : Colors.black87, fontWeight: FontWeight.bold)),
+        ],
+      ),
+    ),
+          PopupMenuItem(
             value: 'clear',
             child: Row(
               children: [
@@ -394,6 +423,10 @@ class _VyuhaScreenState extends State<VyuhaScreen> {
           ),
         ],
         onSelected: (value) async {
+          if (value == 'kram') {
+      // Navigate to Kram Screen, passing the roomId
+      Get.to(() => KramScreen(roomId: ctrl.roomId));
+    }
           if (value == 'export') {
             _exportVyuha(context, ctrl);
           } else if (value == 'export_image') {

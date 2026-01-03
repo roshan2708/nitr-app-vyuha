@@ -5,12 +5,11 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 class GeminiService {
   final _firestore = FirebaseFirestore.instance;
 
-  // ✅ Correct endpoint for Gemini 1.5 model
+  // ✅ Correct endpoint for Gemini 2.5 Flash model
   final String endpoint =
       "https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=";
 
   /// Fetches the Gemini API config from Firestore.
-  /// Returns null if the document doesn't exist or data is missing.
   Future<Map<String, String>?> _fetchGeminiConfig() async {
     try {
       final doc =
@@ -41,21 +40,43 @@ class GeminiService {
   }
 
   Future<List<String>> generateIdeas(String topic, {int count = 5}) async {
-    // 1. Fetch config from Firestore
     final config = await _fetchGeminiConfig();
-    if (config == null) {
-      return []; // Return empty if config failed to load
-    }
+    if (config == null) return [];
 
     final apiKey = config['apiKey']!;
     final promptTemplate = config['promptTemplate']!;
 
-    // 2. Build the prompt from the template
     final prompt = promptTemplate
         .replaceAll('{count}', count.toString())
         .replaceAll('{topic}', topic);
 
-    // 3. Build the request
+    // --- FIX START ---
+    // Await the request to get the dynamic result
+    final result = await _makeRequest(apiKey, prompt, isList: true);
+    
+    // Safely convert dynamic List to List<String>
+    if (result is List) {
+      return List<String>.from(result);
+    }
+    return [];
+    // --- FIX END ---
+  }
+
+  // --- Method for AI Explain ---
+  Future<String> explainNode(String text) async {
+    final config = await _fetchGeminiConfig();
+    if (config == null) return "Configuration Error";
+
+    final apiKey = config['apiKey']!;
+    // Simple direct prompt for explanation
+    final prompt = "Explain the following concept in simple, structured terms suitable for a mind map or study notes. Keep it under 200 words:\n\n$text";
+
+    final result = await _makeRequest(apiKey, prompt, isList: false);
+    return result as String;
+  }
+
+  // Helper to reduce code duplication
+  Future<dynamic> _makeRequest(String apiKey, String prompt, {required bool isList}) async {
     final url = Uri.parse(endpoint + apiKey);
     final body = {
       "contents": [
@@ -67,7 +88,6 @@ class GeminiService {
       ]
     };
 
-    // 4. Make the API call
     try {
       final res = await http.post(
         url,
@@ -85,31 +105,32 @@ class GeminiService {
           text = parts.map((p) => p['text']).join('\n');
         }
 
-        final lines = text
-            .split(RegExp(r'\r?\n'))
-            .map((s) => s.trim())
-            .where((s) => s.isNotEmpty)
-            .toList();
-
-        final unique = <String>{};
-        final out = <String>[];
-        for (var l in lines) {
-          if (!unique.contains(l)) {
-            unique.add(l);
-            out.add(l);
-            if (out.length >= count) break;
+        if (isList) {
+          final lines = text
+              .split(RegExp(r'\r?\n'))
+              .map((s) => s.trim())
+              .where((s) => s.isNotEmpty)
+              .toList();
+          
+          final unique = <String>{};
+          final out = <String>[];
+          for (var l in lines) {
+            if (!unique.contains(l)) {
+              unique.add(l);
+              out.add(l);
+            }
           }
+          return out;
+        } else {
+          return text;
         }
-        return out;
       } else {
         print("Gemini error: ${res.statusCode} ${res.body}");
-        // You might want to check for 401/403 errors, which could
-        // indicate the API key from Firestore is wrong.
-        return [];
+        return isList ? <String>[] : "Error from AI Service";
       }
     } catch (e) {
       print("Gemini request exception: $e");
-      return [];
+      return isList ? <String>[] : "Connection Error";
     }
   }
 }
