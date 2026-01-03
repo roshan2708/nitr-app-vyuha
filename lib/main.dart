@@ -1,5 +1,6 @@
 // FILE: main.dart
 import 'package:flutter/foundation.dart';
+import 'package:vyuha/Screens/KramScreen.dart';
 import 'package:vyuha/Screens/LandingPageScree.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
@@ -56,6 +57,11 @@ class MindMapApp extends StatelessWidget {
         GetPage(name: '/login', page: () => LoginScreen()),
         GetPage(name: '/intro', page: () => IntroScreen()),
         GetPage(name: '/landing', page: () => LandingScreen()),
+        GetPage(
+      name: '/kram/:roomId',
+      page: () => KramScreen(roomId: Get.parameters['roomId']),
+    ),
+        
 
         // --- ADDED /setup-profile ROUTE ---
         GetPage(name: '/setup-profile', page: () => SetupProfileScreen()),

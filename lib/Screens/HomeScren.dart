@@ -1,13 +1,11 @@
-// FILE: HomeScreen.dart
+// FILE: lib/screens/HomeScreen.dart
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-// import 'package:vyuha/AppThemes.dart'; // <-- REMOVED
-import 'package:vyuha/Screens/VyuhaScreen.dart';
 import 'dart:math';
 
 import 'package:vyuha/controllers/AuthController.dart';
-// import 'package:vyuha/controllers/ThemeController.dart'; // <-- REMOVED
+import 'package:flutter/services.dart';
 
 class HomeScreen extends StatefulWidget {
   @override
@@ -16,20 +14,12 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final AuthController auth = Get.find<AuthController>();
-  // final ThemeController themeController = Get.find<ThemeController>(); // <-- REMOVED
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-
-  final List<Color> _cardColors = [
-    Color(0xFFF9B487),
-    Color(0xFF427A76),
-    Color(0xFF3B9797),
-    Color(0xFFFF9013),
-    Color(0xFF8D5F8C),
-  ];
 
   // --- Hardcoded Dark Mode Colors & Styles ---
   final Color _accentOrange = Color(0xFFFF9013);
   final Color _accentBlue = Color(0xFF3B9797);
+  final Color _accentKram = Color(0xFF8D5F8C);
   final Color _dialogBg = Color(0xFF2a2a2a);
   final Color _scaffoldBg = Color(0xFF121212);
   final Color _cardColor = Color(0xFF1E1E1E);
@@ -38,58 +28,115 @@ class _HomeScreenState extends State<HomeScreen> {
   final Color _hintColor = Colors.white54;
   final Color _dividerColor = Colors.white.withOpacity(0.12);
   final Color _errorColor = Colors.red.shade300;
-  final Color _secondaryColor = Colors.white.withOpacity(0.3); // For borders
+  final Color _secondaryColor = Colors.white.withOpacity(0.3);
 
-  // --- TEXTSTYLES MOVED FROM HERE ---
+  // --- TEXTSTYLES ---
+  TextStyle get _titleLarge =>
+      TextStyle(color: _textColor, fontSize: 22, fontWeight: FontWeight.w500);
+  TextStyle get _bodyLarge => TextStyle(color: _textColor, fontSize: 16);
+  TextStyle get _labelMedium =>
+      TextStyle(color: _textMutedColor, fontSize: 12);
+  TextStyle get _bodyMedium =>
+      TextStyle(color: _textMutedColor, fontSize: 14);
+  TextStyle get _headlineSmall =>
+      TextStyle(color: _textColor, fontSize: 24, fontWeight: FontWeight.w400);
+  TextStyle get _headlineMedium =>
+      TextStyle(color: _textColor, fontSize: 28, fontWeight: FontWeight.w600);
+  TextStyle get _bodySmall => TextStyle(color: _textMutedColor, fontSize: 12);
+
+  // --- HELPER METHODS ---
 
   String _generatePasskey() {
     final random = Random();
     return List.generate(6, (_) => random.nextInt(10)).join();
   }
 
-  Future<void> _createRoom() async {
-    final nameController = TextEditingController();
-    // final customTheme = Theme.of(context).extension<CustomTheme>()!; // <-- REMOVED
+  // --- (MODIFIED) MAIN FAB DIALOG ---
+  // Removed Kram creation options here. Only Vyuha and Join remain.
+  void _showCreateMenu() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: _dialogBg,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (context) {
+        return Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _buildMenuOption(
+                icon: Icons.psychology_outlined,
+                label: 'Create New Vyuha',
+                color: _accentOrange,
+                onTap: () {
+                  Navigator.pop(context);
+                  _createRoomDialog('vyuha');
+                },
+              ),
+              Divider(color: _dividerColor, height: 24),
+              _buildMenuOption(
+                icon: Icons.group_add_outlined,
+                label: 'Join Vyuha or Kram',
+                color: _accentBlue,
+                onTap: () {
+                  Navigator.pop(context);
+                  _joinVyuhaDialog();
+                },
+              ),
+              SizedBox(height: 16),
+            ],
+          ),
+        );
+      },
+    );
+  }
 
-    // +++ Local TextStyles for Dialogs +++
-    // We define them here because the `build` context's styles aren't available.
-    final TextStyle _titleLarge =
-        TextStyle(color: _textColor, fontSize: 22, fontWeight: FontWeight.w500);
-    final TextStyle _bodyLarge = TextStyle(color: _textColor, fontSize: 16);
-    final TextStyle _labelMedium =
-        TextStyle(color: _textMutedColor, fontSize: 12);
-    // +++ End of Local TextStyles +++
+  Widget _buildMenuOption(
+      {required IconData icon,
+      required String label,
+      required Color color,
+      required VoidCallback onTap}) {
+    return ListTile(
+      leading: Icon(icon, color: color, size: 24),
+      title: Text(label, style: _bodyLarge.copyWith(fontWeight: FontWeight.w600)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      onTap: onTap,
+    );
+  }
 
+  // --- Create Room Dialog ---
+  Future<void> _createRoomDialog(String type, {String? initialTopic}) async {
+    final nameController = TextEditingController(text: initialTopic ?? '');
+    
+    // We strictly use this for Vyuha now in the Home Screen
     final name = await showDialog<String>(
       context: context,
       builder: (c) => AlertDialog(
-        backgroundColor: _dialogBg, // <-- CHANGED
+        backgroundColor: _dialogBg,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: Row(
           children: [
-            Icon(Icons.psychology,
-                color: _accentOrange, size: 24), // <-- CHANGED
+            Icon(Icons.psychology, color: _accentOrange, size: 24),
             SizedBox(width: 12),
-            Text('New Vyuha', style: _titleLarge), // <-- CHANGED
+            Text('New Vyuha', style: _titleLarge),
           ],
         ),
         content: TextField(
           controller: nameController,
-          style: _bodyLarge, // <-- CHANGED
+          style: _bodyLarge,
           decoration: InputDecoration(
             labelText: 'Vyuha Name',
-            labelStyle: _labelMedium, // <-- CHANGED
-            hintText: 'Enter a name for your Vyuha...',
-            hintStyle: TextStyle(color: _hintColor), // <-- CHANGED
+            labelStyle: _labelMedium,
+            hintText: 'Enter a name...',
+            hintStyle: TextStyle(color: _hintColor),
             enabledBorder: OutlineInputBorder(
-              borderSide: BorderSide(
-                color: _secondaryColor, // <-- CHANGED
-              ),
+              borderSide: BorderSide(color: _secondaryColor),
               borderRadius: BorderRadius.circular(8),
             ),
             focusedBorder: OutlineInputBorder(
-              borderSide:
-                  BorderSide(color: _accentOrange, width: 2), // <-- CHANGED
+              borderSide: BorderSide(color: _accentOrange, width: 2),
               borderRadius: BorderRadius.circular(8),
             ),
           ),
@@ -98,14 +145,11 @@ class _HomeScreenState extends State<HomeScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.of(c).pop(null),
-            child: Text(
-              'Cancel',
-              style: _labelMedium, // <-- CHANGED
-            ),
+            child: Text('Cancel', style: _labelMedium),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
-              backgroundColor: _accentOrange, // <-- CHANGED
+              backgroundColor: _accentOrange,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(8),
               ),
@@ -121,82 +165,78 @@ class _HomeScreenState extends State<HomeScreen> {
     );
 
     if (name == null) return;
-
-    final id = _firestore.collection('rooms').doc().id;
-    final passkey = _generatePasskey();
-    print('Creating Vyuha with owner: ${auth.uid}, passkey: $passkey');
-
-    await _firestore.collection('rooms').doc(id).set({
-      'title': name,
-      'owner': auth.uid,
-      'passkey': passkey,
-      'collaborators': [],
-      'bannedUsers': [],
-      'createdAt': FieldValue.serverTimestamp(),
-    });
-
-    Get.toNamed('/vyuha/$id');
+    
+    _createRoom(name: name, type: type);
   }
 
-  Future<void> _joinVyuha() async {
-    final passkeyController = TextEditingController();
-    // final customTheme = Theme.of(context).extension<CustomTheme>()!; // <-- REMOVED
+  // --- Generic Create Room Function ---
+  Future<void> _createRoom({required String name, required String type}) async {
+    try {
+      final newRoomRef = await _firestore.collection('rooms').add({
+        'title': name,
+        'owner': auth.uid,
+        'passkey': _generatePasskey(),
+        'collaborators': [],
+        'bannedUsers': [],
+        'createdAt': FieldValue.serverTimestamp(),
+        'type': type, // 'vyuha' or 'kram'
+      });
+      
+      final id = newRoomRef.id;
 
-    // +++ Local TextStyles for Dialogs +++
-    final TextStyle _titleLarge =
-        TextStyle(color: _textColor, fontSize: 22, fontWeight: FontWeight.w500);
-    final TextStyle _bodyLarge = TextStyle(color: _textColor, fontSize: 16);
-    final TextStyle _labelMedium =
-        TextStyle(color: _textMutedColor, fontSize: 12);
-    // +++ End of Local TextStyles +++
+      if (type == 'kram') {
+         Get.toNamed('/kram/$id');
+      } else {
+        Get.toNamed('/vyuha/$id');
+      }
+
+    } catch (e) {
+       print('Error creating Vyuha: $e');
+      _showCustomNotification('Failed to create. $e', isError: true);
+    }
+  }
+
+  // --- Join Vyuha Dialog ---
+  Future<void> _joinVyuhaDialog() async {
+    final passkeyController = TextEditingController();
 
     final passkey = await showDialog<String>(
       context: context,
       builder: (c) => AlertDialog(
-        backgroundColor: _dialogBg, // <-- CHANGED
+        backgroundColor: _dialogBg,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: Row(
           children: [
-            Icon(Icons.group_add, color: _accentBlue, size: 24), // <-- CHANGED
+            Icon(Icons.group_add, color: _accentBlue, size: 24),
             SizedBox(width: 12),
-            Text('Join Vyuha', style: _titleLarge), // <-- CHANGED
+            Text('Join Room', style: _titleLarge),
           ],
         ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'Enter the 6-digit passkey to join a Vyuha:',
-              style: TextStyle(
-                color: _textMutedColor, // <-- CHANGED
-                fontSize: 14,
-              ),
-            ),
+            Text('Enter the 6-digit passkey to join a Vyuha or Kram:', style: _bodyMedium),
             SizedBox(height: 16),
             TextField(
               controller: passkeyController,
-              style: _bodyLarge, // <-- CHANGED
+              style: _bodyLarge,
               decoration: InputDecoration(
                 labelText: 'Passkey',
-                labelStyle: _labelMedium, // <-- CHANGED
+                labelStyle: _labelMedium,
                 hintText: 'Enter 6-digit passkey',
-                hintStyle: TextStyle(color: _hintColor), // <-- CHANGED
+                hintStyle: TextStyle(color: _hintColor),
                 enabledBorder: OutlineInputBorder(
-                  borderSide: BorderSide(
-                    color: _secondaryColor, // <-- CHANGED
-                  ),
+                  borderSide: BorderSide(color: _secondaryColor),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 focusedBorder: OutlineInputBorder(
-                  borderSide: BorderSide(
-                    color: _accentBlue, // <-- CHANGED
-                    width: 2,
-                  ),
+                  borderSide: BorderSide(color: _accentBlue, width: 2),
                   borderRadius: BorderRadius.circular(8),
                 ),
               ),
               keyboardType: TextInputType.number,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
               maxLength: 6,
               autofocus: true,
             ),
@@ -205,14 +245,11 @@ class _HomeScreenState extends State<HomeScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.of(c).pop(null),
-            child: Text(
-              'Cancel',
-              style: _labelMedium, // <-- CHANGED
-            ),
+            child: Text('Cancel', style: _labelMedium),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
-              backgroundColor: _accentBlue, // <-- CHANGED
+              backgroundColor: _accentBlue,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(8),
               ),
@@ -230,10 +267,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (passkey == null || passkey.isEmpty) return;
 
     if (passkey.length != 6) {
-      _showCustomNotification(
-        'Please enter a 6-digit passkey',
-        isError: true,
-      );
+      _showCustomNotification('Please enter a 6-digit passkey', isError: true);
       return;
     }
 
@@ -245,41 +279,32 @@ class _HomeScreenState extends State<HomeScreen> {
           .get();
 
       if (snap.docs.isEmpty) {
-        _showCustomNotification(
-          'No Vyuha found with this passkey',
-          isError: true,
-        );
+        _showCustomNotification('No room found with this passkey', isError: true);
         return;
       }
 
       final roomDoc = snap.docs.first;
       final roomId = roomDoc.id;
-      final owner = roomDoc.get('owner') ?? '';
-      final collaborators = List<String>.from(
-        roomDoc.get('collaborators') ?? [],
-      );
-
-      final bannedUsers = List<String>.from(
-        roomDoc.get('bannedUsers') ?? [],
-      );
+      final roomData = roomDoc.data() as Map<String, dynamic>;
+      final roomType = roomData['type'] as String? ?? 'vyuha';
+      final owner = roomData['owner'] ?? '';
+      final collaborators = List<String>.from(roomData['collaborators'] ?? []);
+      final bannedUsers = List<String>.from(roomData['bannedUsers'] ?? []);
 
       if (bannedUsers.contains(auth.uid)) {
-        _showCustomNotification(
-          'You are not allowed to join this Vyuha',
-          isError: true,
-        );
+        _showCustomNotification('You are not allowed to join this room', isError: true);
         return;
       }
 
       if (owner == auth.uid) {
-        _showCustomNotification('You are the owner of this Vyuha');
-        Get.toNamed('/vyuha/$roomId');
+        _showCustomNotification('You are the owner of this room');
+        Get.toNamed(roomType == 'kram' ? '/kram/$roomId' : '/vyuha/$roomId');
         return;
       }
 
       if (collaborators.contains(auth.uid)) {
         _showCustomNotification('You are already a collaborator');
-        Get.toNamed('/vyuha/$roomId');
+        Get.toNamed(roomType == 'kram' ? '/kram/$roomId' : '/vyuha/$roomId');
         return;
       }
 
@@ -287,89 +312,45 @@ class _HomeScreenState extends State<HomeScreen> {
         'collaborators': FieldValue.arrayUnion([auth.uid]),
       });
 
-      _showCustomNotification('Joined Vyuha successfully!');
+      _showCustomNotification('Joined room successfully!');
+      Get.toNamed(roomType == 'kram' ? '/kram/$roomId' : '/vyuha/$roomId');
 
-      Get.toNamed('/vyuha/$roomId');
     } catch (e) {
-      String errorMessage = 'Failed to join Vyuha. Please try again.';
-      String errorTitle = 'Error';
-
-      if (e is FirebaseException) {
-        if (e.code == 'not-found') {
-          errorTitle = 'Not Found';
-          errorMessage = 'No Vyuha found with this passkey.';
-        } else if (e.code == 'failed-precondition') {
-          errorTitle = 'Database Error';
-          errorMessage =
-              'The required database index is missing or building. Please check Firebase.';
-        } else {
-          errorMessage = e.message ?? 'An unknown Firebase error occurred.';
-        }
-      } else {
-        errorMessage = e.toString();
-      }
-
-      print('Error joining Vyuha: $e');
-
-      _showCustomNotification(errorMessage, isError: true);
+      print('Error joining room: $e');
+      _showCustomNotification('Failed to join room', isError: true);
     }
   }
 
-  Future<void> _deleteRoom(String roomId, String title) async {
-    // final customTheme = Theme.of(context).extension<CustomTheme>()!; // <-- REMOVED
-
-    // +++ Local TextStyles for Dialogs +++
-    final TextStyle _titleLarge =
-        TextStyle(color: _textColor, fontSize: 22, fontWeight: FontWeight.w500);
-    final TextStyle _labelMedium =
-        TextStyle(color: _textMutedColor, fontSize: 12);
-    // +++ End of Local TextStyles +++
-
+  // --- Delete Room ---
+  Future<void> _deleteRoom(String roomId, String title, String type) async {
     final confirm = await showDialog<bool>(
       context: context,
       builder: (c) => AlertDialog(
-        backgroundColor: _dialogBg, // <-- CHANGED
+        backgroundColor: _dialogBg,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Text(
-          'Delete Vyuha',
-          style: _titleLarge, // <-- CHANGED
-        ),
+        title: Text('Delete ${type == 'kram' ? 'Kram' : 'Vyuha'}', style: _titleLarge),
         content: RichText(
           text: TextSpan(
-            style: TextStyle(
-              color: _textMutedColor, // <-- CHANGED
-              fontSize: 15,
-            ),
+            style: TextStyle(color: _textMutedColor, fontSize: 15),
             children: [
               TextSpan(text: 'Are you sure you want to delete '),
               TextSpan(
                 text: '"$title"',
-                style: TextStyle(
-                  fontWeight: FontWeight.w600,
-                  color: _accentOrange, // <-- CHANGED
-                ),
+                style: TextStyle(fontWeight: FontWeight.w600, color: _accentOrange),
               ),
-              TextSpan(
-                text:
-                    '?\n\nThis will permanently delete the Vyuha and all its nodes.',
-              ),
+              TextSpan(text: '?\n\nThis will be permanently deleted.'),
             ],
           ),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(c).pop(false),
-            child: Text(
-              'Cancel',
-              style: _labelMedium, // <-- CHANGED
-            ),
+            child: Text('Cancel', style: _labelMedium),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
-              backgroundColor: _errorColor, // <-- CHANGED
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
-              ),
+              backgroundColor: _errorColor,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
             ),
             onPressed: () => Navigator.of(c).pop(true),
             child: Text('Delete', style: TextStyle(color: Colors.white)),
@@ -380,61 +361,52 @@ class _HomeScreenState extends State<HomeScreen> {
 
     if (confirm == true) {
       try {
-        final nodesSnapshot = await _firestore
-            .collection('rooms')
-            .doc(roomId)
-            .collection('nodes')
-            .get();
-
+        final roomRef = _firestore.collection('rooms').doc(roomId);
         final batch = _firestore.batch();
-        for (var doc in nodesSnapshot.docs) {
-          batch.delete(doc.reference);
+
+        if (type == 'vyuha' || type.isEmpty) { 
+          final nodesSnap = await roomRef.collection('nodes').get();
+          for (var doc in nodesSnap.docs) { batch.delete(doc.reference); }
+        } else { 
+          final elementsSnap = await roomRef.collection('elements').get();
+          for (var doc in elementsSnap.docs) { batch.delete(doc.reference); }
+          final edgesSnap = await roomRef.collection('edges').get();
+          for (var doc in edgesSnap.docs) { batch.delete(doc.reference); }
         }
 
-        batch.delete(_firestore.collection('rooms').doc(roomId));
+        batch.delete(roomRef);
         await batch.commit();
+        _showCustomNotification('"$title" was deleted.');
+
       } catch (e) {
-        print('Error deleting Vyuha: $e');
+        print('Error deleting room: $e');
+        _showCustomNotification('Failed to delete. $e', isError: true);
       }
     }
   }
 
+  // --- Rename Room ---
   Future<void> _renameRoom(String roomId, String currentTitle) async {
     final nameController = TextEditingController(text: currentTitle);
-    // final customTheme = Theme.of(context).extension<CustomTheme>()!; // <-- REMOVED
-
-    // +++ Local TextStyles for Dialogs +++
-    final TextStyle _titleLarge =
-        TextStyle(color: _textColor, fontSize: 22, fontWeight: FontWeight.w500);
-    final TextStyle _bodyLarge = TextStyle(color: _textColor, fontSize: 16);
-    final TextStyle _labelMedium =
-        TextStyle(color: _textMutedColor, fontSize: 12);
-    // +++ End of Local TextStyles +++
-
+    
     final newName = await showDialog<String>(
       context: context,
       builder: (c) => AlertDialog(
-        backgroundColor: _dialogBg, // <-- CHANGED
+        backgroundColor: _dialogBg,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Text(
-          'Rename Vyuha',
-          style: _titleLarge, // <-- CHANGED
-        ),
+        title: Text('Rename', style: _titleLarge),
         content: TextField(
           controller: nameController,
-          style: _bodyLarge, // <-- CHANGED
+          style: _bodyLarge,
           decoration: InputDecoration(
             labelText: 'New Name',
-            labelStyle: _labelMedium, // <-- CHANGED
+            labelStyle: _labelMedium,
             enabledBorder: OutlineInputBorder(
-              borderSide: BorderSide(
-                color: _secondaryColor, // <-- CHANGED
-              ),
+              borderSide: BorderSide(color: _secondaryColor),
               borderRadius: BorderRadius.circular(8),
             ),
             focusedBorder: OutlineInputBorder(
-              borderSide:
-                  BorderSide(color: _accentOrange, width: 2), // <-- CHANGED
+              borderSide: BorderSide(color: _accentOrange, width: 2),
               borderRadius: BorderRadius.circular(8),
             ),
           ),
@@ -443,17 +415,12 @@ class _HomeScreenState extends State<HomeScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.of(c).pop(null),
-            child: Text(
-              'Cancel',
-              style: _labelMedium, // <-- CHANGED
-            ),
+            child: Text('Cancel', style: _labelMedium),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
-              backgroundColor: _accentOrange, // <-- CHANGED
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
-              ),
+              backgroundColor: _accentOrange,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
             ),
             onPressed: () {
               final text = nameController.text.trim();
@@ -466,62 +433,52 @@ class _HomeScreenState extends State<HomeScreen> {
     );
 
     if (newName != null && newName != currentTitle) {
-      await _firestore.collection('rooms').doc(roomId).update({
-        'title': newName,
-      });
+      await _firestore.collection('rooms').doc(roomId).update({'title': newName});
     }
   }
 
-  Widget _buildRoomOptionsButton(
-    String roomId,
-    String title,
-    bool isOwner, [
-    Color? iconColor,
-  ]) {
-    // final customTheme = Theme.of(context).extension<CustomTheme>()!; // <-- REMOVED
-
+  // --- Room Options Button ---
+  Widget _buildRoomOptionsButton(String roomId, String title, String type, bool isOwner, [Color? iconColor]) {
+    final safeType = type.isEmpty ? 'vyuha' : type;
+    
     return PopupMenuButton<String>(
       onSelected: (value) {
         if (value == 'open') {
-          Get.toNamed('/vyuha/$roomId');
+          Get.toNamed(safeType == 'kram' ? '/kram/$roomId' : '/vyuha/$roomId');
         } else if (value == 'rename' && isOwner) {
           _renameRoom(roomId, title);
         } else if (value == 'delete' && isOwner) {
-          _deleteRoom(roomId, title);
+          _deleteRoom(roomId, title, safeType);
         } else if (value == 'leave' && !isOwner) {
           _leaveVyuha(roomId, title);
         }
       },
-      icon: Icon(
-        Icons.more_vert,
-        color: iconColor ?? _textMutedColor, // <-- CHANGED
-        size: 20,
-      ),
-      color: _dialogBg, // <-- CHANGED
+      icon: Icon(Icons.more_vert, color: iconColor ?? _textMutedColor, size: 20),
+      color: _dialogBg,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       itemBuilder: (context) => [
         _buildPopupMenuItem(
-          label: 'Open Vyuha',
+          label: 'Open',
           icon: Icons.open_in_new,
-          color: _accentOrange, // <-- CHANGED
+          color: _accentOrange,
           value: 'open',
         ),
         if (isOwner) ...[
           _buildPopupMenuItem(
             label: 'Rename',
             icon: Icons.edit_outlined,
-            color: _accentBlue, // <-- CHANGED
+            color: _accentBlue,
             value: 'rename',
           ),
           _buildPopupMenuItem(
             label: 'Delete',
             icon: Icons.delete_outline,
-            color: _errorColor, // <-- CHANGED
+            color: _errorColor,
             value: 'delete',
           ),
         ] else ...[
           _buildPopupMenuItem(
-            label: 'Leave Vyuha',
+            label: 'Leave',
             icon: Icons.exit_to_app,
             color: Colors.orange.shade400,
             value: 'leave',
@@ -531,44 +488,24 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  // --- Leave Vyuha ---
   Future<void> _leaveVyuha(String roomId, String title) async {
-    // +++ Local TextStyles for Dialogs +++
-    final TextStyle _titleLarge =
-        TextStyle(color: _textColor, fontSize: 22, fontWeight: FontWeight.w500);
-    final TextStyle _labelMedium =
-        TextStyle(color: _textMutedColor, fontSize: 12);
-    // +++ End of Local TextStyles +++
-
     final confirm = await showDialog<bool>(
       context: context,
       builder: (c) => AlertDialog(
-        backgroundColor: _dialogBg, // <-- CHANGED
+        backgroundColor: _dialogBg,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Text(
-          'Leave Vyuha',
-          style: _titleLarge, // <-- CHANGED
-        ),
-        content: Text(
-          'Are you sure you want to leave "$title"?\n\nYou can rejoin using the passkey.',
-          style: TextStyle(
-            color: _textMutedColor, // <-- CHANGED
-            fontSize: 15,
-          ),
-        ),
+        title: Text('Leave Room', style: _titleLarge),
+        content: Text('Are you sure you want to leave "$title"?\n\nYou can rejoin using the passkey.', style: _bodyMedium),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(c).pop(false),
-            child: Text(
-              'Cancel',
-              style: _labelMedium, // <-- CHANGED
-            ),
+            child: Text('Cancel', style: _labelMedium),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.orange.shade400,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
-              ),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
             ),
             onPressed: () => Navigator.of(c).pop(true),
             child: Text('Leave', style: TextStyle(color: Colors.white)),
@@ -582,73 +519,53 @@ class _HomeScreenState extends State<HomeScreen> {
         await _firestore.collection('rooms').doc(roomId).update({
           'collaborators': FieldValue.arrayRemove([auth.uid]),
         });
-
         _showCustomNotification('You have left "$title"');
       } catch (e) {
-        print('Error leaving Vyuha: $e');
+        print('Error leaving room: $e');
       }
     }
   }
 
-  PopupMenuItem<String> _buildPopupMenuItem({
-    required String label,
-    required IconData icon,
-    required Color color,
-    required String value,
-  }) {
+  PopupMenuItem<String> _buildPopupMenuItem(
+      {required String label,
+      required IconData icon,
+      required Color color,
+      required String value}) {
     return PopupMenuItem(
       value: value,
       child: Row(
         children: [
           Icon(icon, color: color, size: 20),
           SizedBox(width: 12),
-          Text(
-            label,
-            style: TextStyle(
-              color: _textColor, // <-- CHANGED
-            ),
-          ),
+          Text(label, style: TextStyle(color: _textColor)),
         ],
       ),
     );
   }
+  
+  // --- Profile / Feedback / Logout ---
 
   Future<void> _showEditNameDialog(String currentName) async {
     final nameController = TextEditingController(text: currentName);
-    // final customTheme = Theme.of(context).extension<CustomTheme>()!; // <-- REMOVED
-
-    // +++ Local TextStyles for Dialogs +++
-    final TextStyle _titleLarge =
-        TextStyle(color: _textColor, fontSize: 22, fontWeight: FontWeight.w500);
-    final TextStyle _bodyLarge = TextStyle(color: _textColor, fontSize: 16);
-    final TextStyle _labelMedium =
-        TextStyle(color: _textMutedColor, fontSize: 12);
-    // +++ End of Local TextStyles +++
 
     final newName = await showDialog<String>(
       context: context,
       builder: (c) => AlertDialog(
-        backgroundColor: _dialogBg, // <-- CHANGED
+        backgroundColor: _dialogBg,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Text(
-          'Edit Your Name',
-          style: _titleLarge, // <-- CHANGED
-        ),
+        title: Text('Edit Your Name', style: _titleLarge),
         content: TextField(
           controller: nameController,
-          style: _bodyLarge, // <-- CHANGED
+          style: _bodyLarge,
           decoration: InputDecoration(
             labelText: 'New Name',
-            labelStyle: _labelMedium, // <-- CHANGED
+            labelStyle: _labelMedium,
             enabledBorder: OutlineInputBorder(
-              borderSide: BorderSide(
-                color: _secondaryColor, // <-- CHANGED
-              ),
+              borderSide: BorderSide(color: _secondaryColor),
               borderRadius: BorderRadius.circular(8),
             ),
             focusedBorder: OutlineInputBorder(
-              borderSide:
-                  BorderSide(color: _accentOrange, width: 2), // <-- CHANGED
+              borderSide: BorderSide(color: _accentOrange, width: 2),
               borderRadius: BorderRadius.circular(8),
             ),
           ),
@@ -657,17 +574,12 @@ class _HomeScreenState extends State<HomeScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.of(c).pop(null),
-            child: Text(
-              'Cancel',
-              style: _labelMedium, // <-- CHANGED
-            ),
+            child: Text('Cancel', style: _labelMedium),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
-              backgroundColor: _accentOrange, // <-- CHANGED
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
-              ),
+              backgroundColor: _accentOrange,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
             ),
             onPressed: () {
               final text = nameController.text.trim();
@@ -680,9 +592,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
 
     if (newName != null && newName != currentName) {
-      await _firestore.collection('users').doc(auth.uid).update({
-        'name': newName,
-      });
+      await _firestore.collection('users').doc(auth.uid).update({'name': newName});
     }
   }
 
@@ -690,61 +600,38 @@ class _HomeScreenState extends State<HomeScreen> {
     final String name = userData['name'] ?? 'No Name';
     final String username = userData['username'] ?? 'No Username';
     final String email = userData['email'] ?? 'No Email';
-    // final customTheme = Theme.of(context).extension<CustomTheme>()!; // <-- REMOVED
-
-    // +++ Local TextStyles for Dialogs +++
-    final TextStyle _titleLarge =
-        TextStyle(color: _textColor, fontSize: 22, fontWeight: FontWeight.w500);
-    final TextStyle _bodyLarge = TextStyle(color: _textColor, fontSize: 16);
-    final TextStyle _labelMedium =
-        TextStyle(color: _textMutedColor, fontSize: 12);
-    // +++ End of Local TextStyles +++
 
     await showDialog(
       context: context,
       builder: (c) => AlertDialog(
-        backgroundColor: _dialogBg, // <-- CHANGED
+        backgroundColor: _dialogBg,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: Row(
           children: [
-            Icon(Icons.person_pin_outlined,
-                color: _accentOrange, size: 24), // <-- CHANGED
+            Icon(Icons.person_pin_outlined, color: _accentOrange, size: 24),
             SizedBox(width: 12),
-            Text('Your Profile', style: _titleLarge), // <-- CHANGED
+            Text('Your Profile', style: _titleLarge),
           ],
         ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // --- EMAIL (Read-only) ---
             ListTile(
-              leading: Icon(Icons.email_outlined, color: _hintColor), // <-- CHANGED
-              title: Text('Email', style: _labelMedium), // <-- CHANGED
-              subtitle: Text(
-                email,
-                style: _bodyLarge, // <-- CHANGED
-              ),
+              leading: Icon(Icons.email_outlined, color: _hintColor),
+              title: Text('Email', style: _labelMedium),
+              subtitle: Text(email, style: _bodyLarge),
             ),
-            // --- USERNAME (Read-only) ---
             ListTile(
-              leading: Icon(Icons.alternate_email, color: _hintColor), // <-- CHANGED
-              title: Text('Username', style: _labelMedium), // <-- CHANGED
-              subtitle: Text(
-                username,
-                style: _bodyLarge, // <-- CHANGED
-              ),
+              leading: Icon(Icons.alternate_email, color: _hintColor),
+              title: Text('Username', style: _labelMedium),
+              subtitle: Text(username, style: _bodyLarge),
             ),
-            // --- NAME (Editable) ---
             ListTile(
-              leading: Icon(Icons.person_outline, color: _hintColor), // <-- CHANGED
-              title: Text('Name', style: _labelMedium), // <-- CHANGED
-              subtitle: Text(
-                name,
-                style: _bodyLarge, // <-- CHANGED
-              ),
+              leading: Icon(Icons.person_outline, color: _hintColor),
+              title: Text('Name', style: _labelMedium),
+              subtitle: Text(name, style: _bodyLarge),
               trailing: IconButton(
-                icon: Icon(Icons.edit_outlined,
-                    size: 20, color: _accentOrange), // <-- CHANGED
+                icon: Icon(Icons.edit_outlined, size: 20, color: _accentOrange),
                 tooltip: 'Edit Name',
                 onPressed: () {
                   Navigator.of(c).pop();
@@ -757,61 +644,39 @@ class _HomeScreenState extends State<HomeScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.of(c).pop(),
-            child: Text(
-              'Close',
-              style: _labelMedium, // <-- CHANGED
-            ),
+            child: Text('Close', style: _labelMedium),
           ),
         ],
       ),
     );
   }
 
-  // +++ NEW +++
-  // This is the new function to handle the feedback form.
   Future<void> _showFeedbackDialog() async {
     final messageController = TextEditingController();
-    // 0 = Bug Report, 1 = Testimonial
     List<bool> _isSelected = [true, false];
-    // To show a loading spinner
     bool _isSubmitting = false;
-
-    // +++ Local TextStyles for Dialogs +++
-    final TextStyle _titleLarge =
-        TextStyle(color: _textColor, fontSize: 22, fontWeight: FontWeight.w500);
-    final TextStyle _bodyLarge = TextStyle(color: _textColor, fontSize: 16);
-    final TextStyle _labelMedium =
-        TextStyle(color: _textMutedColor, fontSize: 12);
-    // +++ End of Local TextStyles +++
 
     await showDialog<void>(
       context: context,
       builder: (c) {
-        // Use StatefulBuilder to manage the state of the toggle and loading
         return StatefulBuilder(
           builder: (context, setState) {
             return AlertDialog(
-              backgroundColor: _dialogBg, // <-- Style
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16)),
+              backgroundColor: _dialogBg,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
               title: Row(
                 children: [
-                  Icon(Icons.feedback_outlined,
-                      color: _accentOrange, size: 24), // <-- Style
+                  Icon(Icons.feedback_outlined, color: _accentOrange, size: 24),
                   SizedBox(width: 12),
-                  Text('Send Feedback', style: _titleLarge), // <-- Style
+                  Text('Send Feedback', style: _titleLarge),
                 ],
               ),
               content: SingleChildScrollView(
-                // In case keyboard appears
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      'Select Type:',
-                      style: _labelMedium, // <-- Style
-                    ),
+                    Text('Select Type:', style: _labelMedium),
                     SizedBox(height: 8),
                     ToggleButtons(
                       isSelected: _isSelected,
@@ -824,52 +689,38 @@ class _HomeScreenState extends State<HomeScreen> {
                       },
                       borderRadius: BorderRadius.circular(8),
                       selectedColor: Colors.white,
-                      fillColor: _accentBlue, // <-- Style
-                      color: _textMutedColor, // <-- Style
-                      borderColor: _secondaryColor, // <-- Style
-                      selectedBorderColor: _accentBlue, // <-- Style
+                      fillColor: _accentBlue,
+                      color: _textMutedColor,
+                      borderColor: _secondaryColor,
+                      selectedBorderColor: _accentBlue,
                       children: [
                         Padding(
                           padding: EdgeInsets.symmetric(horizontal: 16.0),
-                          child: Row(
-                            children: [
-                              Icon(Icons.bug_report_outlined, size: 16),
-                              SizedBox(width: 8),
-                              Text('Bug Report'),
-                            ],
-                          ),
+                          child: Row(children: [Icon(Icons.bug_report_outlined, size: 16), SizedBox(width: 8), Text('Bug Report')]),
                         ),
                         Padding(
                           padding: EdgeInsets.symmetric(horizontal: 16.0),
-                          child: Row(
-                            children: [
-                              Icon(Icons.star_outline, size: 16),
-                              SizedBox(width: 8),
-                              Text('Testimonial'),
-                            ],
-                          ),
+                          child: Row(children: [Icon(Icons.star_outline, size: 16), SizedBox(width: 8), Text('Testimonial')]),
                         ),
                       ],
                     ),
                     SizedBox(height: 20),
                     TextField(
                       controller: messageController,
-                      style: _bodyLarge, // <-- Style
+                      style: _bodyLarge,
                       maxLines: 5,
                       decoration: InputDecoration(
                         labelText: 'Your Message',
-                        labelStyle: _labelMedium, // <-- Style
+                        labelStyle: _labelMedium,
                         hintText: 'Please provide details...',
-                        hintStyle: TextStyle(color: _hintColor), // <-- Style
-                        alignLabelWithHint: true, // Good for multiline
+                        hintStyle: TextStyle(color: _hintColor),
+                        alignLabelWithHint: true,
                         enabledBorder: OutlineInputBorder(
-                          borderSide:
-                              BorderSide(color: _secondaryColor), // <-- Style
+                          borderSide: BorderSide(color: _secondaryColor),
                           borderRadius: BorderRadius.circular(8),
                         ),
                         focusedBorder: OutlineInputBorder(
-                          borderSide: BorderSide(
-                              color: _accentOrange, width: 2), // <-- Style
+                          borderSide: BorderSide(color: _accentOrange, width: 2),
                           borderRadius: BorderRadius.circular(8),
                         ),
                       ),
@@ -880,73 +731,42 @@ class _HomeScreenState extends State<HomeScreen> {
               actions: [
                 TextButton(
                   onPressed: () => Navigator.of(c).pop(),
-                  child: Text(
-                    'Cancel',
-                    style: _labelMedium, // <-- Style
-                  ),
+                  child: Text('Cancel', style: _labelMedium),
                 ),
                 ElevatedButton(
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: _accentOrange, // <-- Style
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
+                    backgroundColor: _accentOrange,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                   ),
                   onPressed: _isSubmitting
                       ? null
                       : () async {
                           final message = messageController.text.trim();
                           if (message.isEmpty) {
-                            Navigator.of(c).pop(); // Close dialog first
-                            _showCustomNotification(
-                              'Please enter a message before submitting.',
-                              isError: true,
-                            );
+                            Navigator.of(c).pop();
+                            _showCustomNotification('Please enter a message.', isError: true);
                             return;
                           }
-
-                          // Set loading state
-                          setState(() {
-                            _isSubmitting = true;
-                          });
-
-                          final feedbackType =
-                              _isSelected[0] ? 'Bug Report' : 'Testimonial';
-
+                          setState(() { _isSubmitting = true; });
+                          final feedbackType = _isSelected[0] ? 'Bug Report' : 'Testimonial';
                           try {
-                            // Save to a new 'feedback' collection
                             await _firestore.collection('feedback').add({
                               'type': feedbackType,
                               'message': message,
-                              'userId': auth.uid, // Track who sent it
+                              'userId': auth.uid,
                               'timestamp': FieldValue.serverTimestamp(),
-                              'status': 'New', // For you to track in Firebase
+                              'status': 'New',
                             });
-
-                            Navigator.of(c).pop(); // Close dialog
-                            _showCustomNotification(
-                                'Thank you for your feedback!'); // Show success
+                            Navigator.of(c).pop();
+                            _showCustomNotification('Thank you for your feedback!');
                           } catch (e) {
                             print('Error submitting feedback: $e');
-                            // Reset loading state and show error
                             Navigator.of(c).pop();
-                            _showCustomNotification(
-                              'Failed to send feedback. Please try again.',
-                              isError: true,
-                            );
+                            _showCustomNotification('Failed to send feedback.', isError: true);
                           }
                         },
-                  // Show loading indicator or text
                   child: _isSubmitting
-                      ? SizedBox(
-                          height: 20,
-                          width: 20,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            valueColor:
-                                AlwaysStoppedAnimation<Color>(Colors.white),
-                          ),
-                        )
+                      ? SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, valueColor: AlwaysStoppedAnimation<Color>(Colors.white)))
                       : Text('Submit', style: TextStyle(color: Colors.white)),
                 ),
               ],
@@ -958,22 +778,12 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _showCustomNotification(String message, {bool isError = false}) {
-    // final bool isDarkMode = Get.isDarkMode; // <-- REMOVED
-    final Color bgColor = Color(0xFF1E1E1E); // <-- CHANGED
-    final Color textColor =
-        isError ? Colors.red.shade300 : Colors.white; // <-- CHANGED
-    final Color borderColor =
-        isError ? Colors.red.shade300 : Color(0xFF333333); // <-- CHANGED
+    final Color bgColor = Color(0xFF1E1E1E);
+    final Color textColor = isError ? Colors.red.shade300 : Colors.white;
+    final Color borderColor = isError ? Colors.red.shade300 : Color(0xFF333333);
 
     Get.rawSnackbar(
-      messageText: Text(
-        message,
-        style: TextStyle(
-          color: textColor,
-          fontWeight: FontWeight.w500,
-        ),
-        textAlign: TextAlign.center,
-      ),
+      messageText: Text(message, style: TextStyle(color: textColor, fontWeight: FontWeight.w500), textAlign: TextAlign.center),
       backgroundColor: bgColor,
       snackPosition: SnackPosition.BOTTOM,
       borderRadius: 10,
@@ -982,55 +792,29 @@ class _HomeScreenState extends State<HomeScreen> {
       padding: EdgeInsets.symmetric(horizontal: 20, vertical: 12),
       borderColor: borderColor,
       borderWidth: 1,
-      boxShadows: [
-        BoxShadow(
-          color: Colors.black.withOpacity(0.2),
-          blurRadius: 10,
-          offset: Offset(0, 4),
-        ),
-      ],
+      boxShadows: [BoxShadow(color: Colors.black.withOpacity(0.2), blurRadius: 10, offset: Offset(0, 4))],
       duration: Duration(seconds: 3),
       animationDuration: Duration(milliseconds: 300),
       snackStyle: SnackStyle.FLOATING,
     );
   }
 
+  // --- MAIN BUILD METHOD ---
   @override
   Widget build(BuildContext context) {
     final screenWidth = MediaQuery.of(context).size.width;
     final bool isWideScreen = screenWidth > 720;
-    // final customTheme = Theme.of(context).extension<CustomTheme>()!; // <-- REMOVED
-
-    // +++ TEXTSTYLES MOVED HERE +++
-    final TextStyle _titleLarge =
-        TextStyle(color: _textColor, fontSize: 22, fontWeight: FontWeight.w500);
-    final TextStyle _bodyLarge = TextStyle(color: _textColor, fontSize: 16);
-    final TextStyle _labelMedium =
-        TextStyle(color: _textMutedColor, fontSize: 12);
-    final TextStyle _bodyMedium =
-        TextStyle(color: _textMutedColor, fontSize: 14);
-    final TextStyle _headlineSmall =
-        TextStyle(color: _textColor, fontSize: 24, fontWeight: FontWeight.w400);
-    final TextStyle _headlineMedium =
-        TextStyle(color: _textColor, fontSize: 28, fontWeight: FontWeight.w600);
-    final TextStyle _bodySmall = TextStyle(color: _textMutedColor, fontSize: 12);
-    // +++ END OF TEXTSTYLE DEFINITIONS +++
 
     return Scaffold(
-      backgroundColor: _scaffoldBg, // <-- CHANGED
+      backgroundColor: _scaffoldBg,
       appBar: PreferredSize(
         preferredSize: Size.fromHeight(70.0),
         child: AppBar(
-          toolbarHeight: 70.0, // <-- THIS IS THE FIX
+          toolbarHeight: 70.0,
           automaticallyImplyLeading: false,
-          backgroundColor: _cardColor, // <-- CHANGED
+          backgroundColor: _cardColor,
           elevation: 0,
-          shape: Border(
-            bottom: BorderSide(
-              color: _dividerColor, // <-- CHANGED
-              width: 1.0,
-            ),
-          ),
+          shape: Border(bottom: BorderSide(color: _dividerColor, width: 1.0)),
           title: Center(
             child: ConstrainedBox(
               constraints: BoxConstraints(maxWidth: 1200),
@@ -1040,95 +824,46 @@ class _HomeScreenState extends State<HomeScreen> {
                   children: [
                     if (isWideScreen) ...[
                       ClipOval(
-                        child: Image.asset(
-                          'assets/images/icon.png',
-                          height: 34,
-                          width: 34,
-                          fit: BoxFit.cover,
-                        ),
+                        child: Image.asset('assets/images/icon.png', height: 34, width: 34, fit: BoxFit.cover),
                       ),
                       SizedBox(width: 12),
                     ],
-                    Text(
-                      'Vyuha',
-                      style: TextStyle(
-                          fontSize: 28,
-                          fontWeight: FontWeight.w600,
-                          color: _textColor), // <-- CHANGED
-                    ),
+                    Text('Vyuha', style: TextStyle(fontSize: 28, fontWeight: FontWeight.w600, color: _textColor)),
                     SizedBox(width: 24),
                     Spacer(),
-
-                    // --- THEME BUTTON (REMOVED) ---
-
-                    // +++ NEW +++
-                    // Feedback button added here
                     IconButton(
                       onPressed: _showFeedbackDialog,
-                      icon: Icon(
-                        Icons.feedback_outlined,
-                        color: _textColor, // <-- Use hardcoded style
-                        size: 22,
-                      ),
+                      icon: Icon(Icons.feedback_outlined, color: _textColor, size: 22),
                       tooltip: 'Send Feedback',
                     ),
                     SizedBox(width: 8),
-                    // +++ END NEW +++
-
-                    // --- (NEW) PROFILE ICON BUTTON ---
                     StreamBuilder<DocumentSnapshot>(
-                      stream: _firestore
-                          .collection('users')
-                          .doc(auth.uid)
-                          .snapshots(),
+                      stream: _firestore.collection('users').doc(auth.uid).snapshots(),
                       builder: (context, snapshot) {
                         if (!snapshot.hasData || snapshot.data?.data() == null) {
-                          return CircleAvatar(
-                            radius: 16,
-                            backgroundColor:
-                                _secondaryColor.withOpacity(0.5), // <-- CHANGED
-                            child: Icon(Icons.person_outline,
-                                size: 18, color: Colors.white54),
-                          );
+                          return CircleAvatar(radius: 16, backgroundColor: _secondaryColor.withOpacity(0.5), child: Icon(Icons.person_outline, size: 18, color: Colors.white54));
                         }
-
-                        final data =
-                            snapshot.data!.data() as Map<String, dynamic>;
+                        final data = snapshot.data!.data() as Map<String, dynamic>;
                         final name = data['name'] as String? ?? 'U';
-                        final String initial =
-                            name.isNotEmpty ? name[0].toUpperCase() : 'U';
-
+                        final String initial = name.isNotEmpty ? name[0].toUpperCase() : 'U';
                         return IconButton(
                           onPressed: () => _showProfileDialog(data),
                           icon: CircleAvatar(
                             radius: 16,
-                            backgroundColor: _accentOrange, // <-- CHANGED
-                            child: Text(
-                              initial,
-                              style: TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: 14),
-                            ),
+                            backgroundColor: _accentOrange,
+                            child: Text(initial, style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14)),
                           ),
                           tooltip: 'View Profile',
                         );
                       },
                     ),
-
                     SizedBox(width: 8),
-
-                    // --- LOGOUT BUTTON (Unchanged) ---
                     IconButton(
                       onPressed: () async {
                         await auth.signOut();
                         Get.offAllNamed('/login');
                       },
-                      icon: Icon(
-                        Icons.logout,
-                        color: _textColor, // <-- CHANGED
-                        size: 22,
-                      ),
+                      icon: Icon(Icons.logout, color: _textColor, size: 22),
                       tooltip: 'Logout',
                     ),
                     SizedBox(width: 4),
@@ -1143,30 +878,28 @@ class _HomeScreenState extends State<HomeScreen> {
         child: ConstrainedBox(
           constraints: BoxConstraints(maxWidth: 1200),
           child: StreamBuilder<QuerySnapshot>(
-            stream: _firestore
-                .collection('rooms')
-                .where('owner', isEqualTo: auth.uid)
+            stream: _firestore.collection('rooms')
+                .where('collaborators', arrayContains: auth.uid)
                 .snapshots(),
-            builder: (context, ownedSnap) {
+            builder: (context, collaboratingSnap) {
               return StreamBuilder<QuerySnapshot>(
-                stream: _firestore
-                    .collection('rooms')
-                    .where('collaborators', arrayContains: auth.uid)
+                stream: _firestore.collection('rooms')
+                    .where('owner', isEqualTo: auth.uid)
                     .snapshots(),
-                builder: (context, collaboratingSnap) {
+                builder: (context, ownedSnap) {
+
                   if (!ownedSnap.hasData && !collaboratingSnap.hasData) {
-                    return Center(
-                      child: CircularProgressIndicator(
-                        valueColor: AlwaysStoppedAnimation<Color>(
-                          _accentOrange, // <-- CHANGED
-                        ),
-                      ),
-                    );
+                    return Center(child: CircularProgressIndicator(valueColor: AlwaysStoppedAnimation<Color>(_accentOrange)));
                   }
 
                   final ownedDocs = ownedSnap.data?.docs ?? [];
                   final collaboratingDocs = collaboratingSnap.data?.docs ?? [];
-                  final allDocs = [...ownedDocs, ...collaboratingDocs];
+                  
+                  final allDocsMap = <String, QueryDocumentSnapshot>{};
+                  for (var doc in ownedDocs) { allDocsMap[doc.id] = doc; }
+                  for (var doc in collaboratingDocs) { allDocsMap[doc.id] = doc; }
+                  final allDocs = allDocsMap.values.toList();
+
 
                   allDocs.sort((a, b) {
                     final aTime = a['createdAt'] as Timestamp?;
@@ -1182,33 +915,16 @@ class _HomeScreenState extends State<HomeScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       if (isWideScreen)
-                        _buildWebHeader(
-                          // customTheme, // <-- REMOVED
-                          ownedDocs,
-                          collaboratingDocs,
-                          _headlineMedium, // Pass styles
-                          _bodyLarge, // Pass styles
-                          _headlineSmall, // Pass styles
-                          _bodySmall, // Pass styles
-                        ),
+                        _buildWebHeader(ownedDocs, collaboratingDocs),
                       if (isWideScreen && !isEmpty)
                         Padding(
                           padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-                          child: Text(
-                            'All Your Vyuha',
-                            style: _headlineSmall.copyWith(
-                                fontWeight: FontWeight.w400), // <-- CHANGED
-                          ),
+                          child: Text('All Your Rooms', style: _headlineSmall.copyWith(fontWeight: FontWeight.w400)),
                         ),
                       Expanded(
                         child: isEmpty
-                            ? _buildEmptyState(_bodyMedium, _labelMedium)
-                            : _buildGridView(
-                                allDocs,
-                                isWideScreen,
-                                _titleLarge, // Pass styles
-                                _bodySmall, // Pass styles
-                              ),
+                            ? _buildEmptyState()
+                            : _buildGridView(allDocs, isWideScreen),
                       ),
                     ],
                   );
@@ -1218,57 +934,25 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
       ),
-      floatingActionButton: isWideScreen
-          ? null
-          : Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                FloatingActionButton.extended(
-                  heroTag: 'join',
-                  onPressed: _joinVyuha,
-                  backgroundColor: _accentBlue, // <-- CHANGED
-                  elevation: 2,
-                  icon: Icon(Icons.lock_outlined, color: Colors.white),
-                  label: Text(
-                    'Join Vyuha',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ),
-                SizedBox(height: 12),
-                FloatingActionButton.extended(
-                  heroTag: 'create',
-                  onPressed: _createRoom,
-                  backgroundColor: _accentOrange, // <-- CHANGED
-                  elevation: 2,
-                  icon: Icon(Icons.add, color: Colors.white),
-                  label: Text(
-                    'New Vyuha',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ),
-              ],
-            ),
+      floatingActionButton: FloatingActionButton(
+        heroTag: 'main_fab',
+        onPressed: _showCreateMenu,
+        backgroundColor: _accentOrange,
+        child: Icon(Icons.add, color: Colors.white, size: 28),
+        tooltip: 'Create or Join',
+      ),
     );
   }
 
+  // --- Web Header ---
   Widget _buildWebHeader(
-    // CustomTheme customTheme, // <-- REMOVED
-    List<QueryDocumentSnapshot> ownedDocs,
-    List<QueryDocumentSnapshot> collaboratingDocs,
-    // +++ Pass styles from build method +++
-    TextStyle _headlineMedium,
-    TextStyle _bodyLarge,
-    TextStyle _headlineSmall,
-    TextStyle _bodySmall,
-  ) {
-    final int totalCount = ownedDocs.length + collaboratingDocs.length;
-    final int collabCount = collaboratingDocs.length;
+      List<QueryDocumentSnapshot> ownedDocs,
+      List<QueryDocumentSnapshot> collaboratingDocs) {
+        
+    final collabIds = collaboratingDocs.map((d) => d.id).toSet();
+    final ownedIds = ownedDocs.map((d) => d.id).toSet();
+    final totalCount = collabIds.union(ownedIds).length;
+    final collabCount = collaboratingDocs.where((d) => !ownedIds.contains(d.id)).length;
 
     return Padding(
       padding: const EdgeInsets.all(16.0),
@@ -1277,33 +961,30 @@ class _HomeScreenState extends State<HomeScreen> {
         children: [
           Row(
             children: [
-              Text(
-                'Dashboard',
-                style: _headlineMedium, // <-- CHANGED
-              ),
+              Text('Dashboard', style: _headlineMedium),
               Spacer(),
               ElevatedButton.icon(
-                onPressed: _joinVyuha,
+                onPressed: _joinVyuhaDialog,
                 icon: Icon(Icons.group_add_outlined, size: 18),
-                label: Text('Join Vyuha'),
+                label: Text('Join Room'),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: _cardColor, // <-- CHANGED
-                  foregroundColor: _textColor, // <-- CHANGED
+                  backgroundColor: _cardColor,
+                  foregroundColor: _textColor,
                   elevation: 0,
                   padding: EdgeInsets.symmetric(horizontal: 20, vertical: 16),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(8),
-                    side: BorderSide(color: _dividerColor), // <-- CHANGED
+                    side: BorderSide(color: _dividerColor),
                   ),
                 ),
               ),
               SizedBox(width: 12),
               ElevatedButton.icon(
-                onPressed: _createRoom,
+                onPressed: _showCreateMenu,
                 icon: Icon(Icons.add, size: 18),
-                label: Text('New Vyuha'),
+                label: Text('Create Vyuha'),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: _accentOrange, // <-- CHANGED
+                  backgroundColor: _accentOrange,
                   foregroundColor: Colors.white,
                   elevation: 0,
                   padding: EdgeInsets.symmetric(horizontal: 20, vertical: 16),
@@ -1318,61 +999,17 @@ class _HomeScreenState extends State<HomeScreen> {
           Row(
             children: [
               _buildStatCard(
-                'Total Vyuha',
+                'Total Rooms',
                 totalCount.toString(),
-                Icons.account_tree_outlined,
-                _accentOrange, // <-- CHANGED
-                _headlineSmall, // Pass style
-                _bodySmall, // Pass style
+                Icons.layers_outlined,
+                _accentOrange,
               ),
               SizedBox(width: 16),
               _buildStatCard(
                 'Collaborations',
                 collabCount.toString(),
                 Icons.people_alt_outlined,
-                _accentBlue, // <-- CHANGED
-                _headlineSmall, // Pass style
-                _bodySmall, // Pass style
-              ),
-              Spacer(),
-              Expanded(
-                child: Container(
-                  constraints: BoxConstraints(maxWidth: 400),
-                  child: TextField(
-                    style: _bodyLarge, // <-- CHANGED
-                    decoration: InputDecoration(
-                      hintText: 'Search your Vyuha...',
-                      hintStyle: TextStyle(color: _hintColor), // <-- CHANGED
-                      prefixIcon: Icon(
-                        Icons.search,
-                        color: _hintColor, // <-- CHANGED
-                        size: 20,
-                      ),
-                      filled: true,
-                      fillColor: _cardColor, // <-- CHANGED
-                      contentPadding: EdgeInsets.symmetric(vertical: 14),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                        borderSide: BorderSide(
-                          color: _dividerColor, // <-- CHANGED
-                        ),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                        borderSide: BorderSide(
-                          color: _dividerColor, // <-- CHANGED
-                        ),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                        borderSide: BorderSide(
-                          color: _accentBlue, // <-- CHANGED
-                          width: 2,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
+                _accentBlue,
               ),
             ],
           ),
@@ -1381,22 +1018,14 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildStatCard(
-    String title,
-    String value,
-    IconData icon,
-    Color color,
-    // +++ Pass styles from build method +++
-    TextStyle _headlineSmall,
-    TextStyle _bodySmall,
-  ) {
+  Widget _buildStatCard(String title, String value, IconData icon, Color color) {
     return Container(
       width: 200,
       padding: EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: _cardColor, // <-- CHANGED
+        color: _cardColor,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: _dividerColor), // <-- CHANGED
+        border: Border.all(color: _dividerColor),
       ),
       child: Row(
         children: [
@@ -1408,12 +1037,8 @@ class _HomeScreenState extends State<HomeScreen> {
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                value,
-                style: _headlineSmall.copyWith(
-                    fontWeight: FontWeight.w600), // <-- CHANGED
-              ),
-              Text(title, style: _bodySmall), // <-- CHANGED
+              Text(value, style: _headlineSmall.copyWith(fontWeight: FontWeight.w600)),
+              Text(title, style: _bodySmall),
             ],
           ),
         ],
@@ -1421,13 +1046,8 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildGridView(
-    List<QueryDocumentSnapshot> allDocs,
-    bool isWideScreen,
-    // +++ Pass styles from build method +++
-    TextStyle _titleLarge,
-    TextStyle _bodySmall,
-  ) {
+  // --- Grid View ---
+  Widget _buildGridView(List<QueryDocumentSnapshot> allDocs, bool isWideScreen) {
     return GridView.builder(
       padding: EdgeInsets.all(16),
       gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
@@ -1443,48 +1063,43 @@ class _HomeScreenState extends State<HomeScreen> {
         final createdAt = d['createdAt'] as Timestamp?;
         final owner = d['owner'] ?? '';
         final isOwner = owner == auth.uid;
-        final accentColor = _cardColors[i % _cardColors.length];
-        return _buildRoomCard(
-          d.id,
-          title,
-          createdAt,
-          accentColor,
-          isOwner,
-          _titleLarge, // Pass style
-          _bodySmall, // Pass style
-        );
+        
+        final roomData = d.data() as Map<String, dynamic>;
+        final type = roomData['type'] as String? ?? 'vyuha'; 
+
+        final Color accentColor = type == 'kram' ? _accentKram : _accentOrange;
+
+        return _buildRoomCard(d.id, title, createdAt, accentColor, isOwner, type);
       },
     );
   }
 
+  // --- Room Card ---
   Widget _buildRoomCard(
-    String docId,
-    String title,
-    Timestamp? createdAt,
-    Color accentColor,
-    bool isOwner,
-    // +++ Pass styles from build method +++
-    TextStyle _titleLarge,
-    TextStyle _bodySmall,
-  ) {
-    // final customTheme = Theme.of(context).extension<CustomTheme>()!; // <-- REMOVED
+      String docId,
+      String title,
+      Timestamp? createdAt,
+      Color accentColor,
+      bool isOwner,
+      String type) {
+        
+    final safeType = type.isEmpty ? 'vyuha' : type;
+    final String typeLabel = safeType.toUpperCase();
+    final IconData typeIcon = safeType == 'kram' ? Icons.account_tree_outlined : Icons.psychology_outlined;
 
     return InkWell(
-      onTap: () => Get.toNamed('/vyuha/$docId'),
+      onTap: () => Get.toNamed(safeType == 'kram' ? '/kram/$docId' : '/vyuha/$docId'),
       borderRadius: BorderRadius.circular(12),
       child: Card(
         elevation: 0,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12),
-          side: BorderSide(
-            color: _dividerColor.withOpacity(0.5), // <-- CHANGED
-            width: 1,
-          ),
+          side: BorderSide(color: _dividerColor.withOpacity(0.5), width: 1),
         ),
         clipBehavior: Clip.antiAlias,
         child: Container(
           decoration: BoxDecoration(
-            color: _cardColor, // <-- CHANGED
+            color: _cardColor,
             border: Border(left: BorderSide(color: accentColor, width: 6)),
           ),
           child: Stack(
@@ -1498,48 +1113,41 @@ class _HomeScreenState extends State<HomeScreen> {
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        if (!isOwner) ...[
-                          Container(
-                            padding: EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 4,
+                        // Type label
+                        Row(
+                          children: [
+                            Icon(typeIcon, color: accentColor, size: 12),
+                            SizedBox(width: 4),
+                            Text(
+                              typeLabel,
+                              style: TextStyle(color: accentColor, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 0.5),
                             ),
-                            decoration: BoxDecoration(
-                              color: _accentBlue.withOpacity(0.1), // <-- CHANGED
-                              borderRadius: BorderRadius.circular(20),
-                              border: Border.all(
-                                color:
-                                    _accentBlue.withOpacity(0.5), // <-- CHANGED
+                            if (!isOwner) ...[
+                              SizedBox(width: 8),
+                              Container(
+                                padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: _accentBlue.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(20),
+                                  border: Border.all(color: _accentBlue.withOpacity(0.5)),
+                                ),
+                                child: Text('COLLABORATOR', style: TextStyle(color: _accentBlue, fontSize: 8, fontWeight: FontWeight.bold, letterSpacing: 0.5)),
                               ),
-                            ),
-                            child: Text(
-                              'COLLABORATOR',
-                              style: TextStyle(
-                                color: _accentBlue, // <-- CHANGED
-                                fontSize: 8,
-                                fontWeight: FontWeight.bold,
-                                letterSpacing: 0.5,
-                              ),
-                            ),
-                          ),
-                          SizedBox(height: 8),
-                        ],
+                            ],
+                          ],
+                        ),
+                        SizedBox(height: 8),
                         Text(
                           title,
-                          style: _titleLarge.copyWith(
-                            fontWeight: FontWeight.w600,
-                            fontSize: 18,
-                          ), // <-- CHANGED
+                          style: _titleLarge.copyWith(fontWeight: FontWeight.w600, fontSize: 18),
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                         ),
                       ],
                     ),
                     Text(
-                      createdAt != null
-                          ? _formatDate(createdAt.toDate())
-                          : 'Just now',
-                      style: _bodySmall, // <-- CHANGED
+                      createdAt != null ? _formatDate(createdAt.toDate()) : 'Just now',
+                      style: _bodySmall,
                     ),
                   ],
                 ),
@@ -1547,12 +1155,7 @@ class _HomeScreenState extends State<HomeScreen> {
               Positioned(
                 top: 4,
                 right: 4,
-                child: _buildRoomOptionsButton(
-                  docId,
-                  title,
-                  isOwner,
-                  _textMutedColor, // <-- CHANGED
-                ),
+                child: _buildRoomOptionsButton(docId, title, safeType, isOwner, _textMutedColor),
               ),
             ],
           ),
@@ -1561,13 +1164,8 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildEmptyState(
-    // +++ Pass styles from build method +++
-    TextStyle _bodyMedium,
-    TextStyle _labelMedium,
-  ) {
-    // final customTheme = Theme.of(context).extension<CustomTheme>()!; // <-- REMOVED
-
+  // --- Empty State ---
+  Widget _buildEmptyState() {
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -1583,56 +1181,26 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           SizedBox(height: 24),
           Text(
-            'अद्यापि व्यूहो नास्ति',
-            style: TextStyle(
-              fontSize: 24,
-              color: _textMutedColor, // <-- CHANGED
-              fontWeight: FontWeight.w500,
-            ),
+            'अद्यापि कोष्ठो नास्ति', 
+            style: TextStyle(fontSize: 24, color: _textMutedColor, fontWeight: FontWeight.w500),
           ),
           SizedBox(height: 12),
           Text(
-            'Create your first Vyuha or join one',
-            style: TextStyle(
-              fontSize: 14,
-              color: _hintColor, // <-- CHANGED
-              fontWeight: FontWeight.w300,
-            ),
+            'Create your first Vyuha',
+            style: TextStyle(fontSize: 14, color: _hintColor, fontWeight: FontWeight.w300),
           ),
           SizedBox(height: 32),
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ElevatedButton.icon(
-                onPressed: _joinVyuha,
-                icon: Icon(Icons.group_add, size: 20),
-                label: Text('Join Vyuha'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: _accentBlue, // <-- CHANGED
-                  foregroundColor: Colors.white,
-                  padding: EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-                  elevation: 0,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                ),
-              ),
-              SizedBox(width: 16),
-              ElevatedButton.icon(
-                onPressed: _createRoom,
-                icon: Icon(Icons.add, size: 20),
-                label: Text('Create Vyuha'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: _accentOrange, // <-- CHANGED
-                  foregroundColor: Colors.white,
-                  padding: EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-                  elevation: 0,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                ),
-              ),
-            ],
+          ElevatedButton.icon(
+            onPressed: _showCreateMenu,
+            icon: Icon(Icons.add, size: 20),
+            label: Text('Create Vyuha'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: _accentOrange,
+              foregroundColor: Colors.white,
+              padding: EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+              elevation: 0,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
           ),
         ],
       ),
@@ -1645,9 +1213,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     if (diff.inDays == 0) {
       if (diff.inHours == 0) {
-        if (diff.inMinutes == 0) {
-          return 'Just now';
-        }
+        if (diff.inMinutes == 0) return 'Just now';
         return '${diff.inMinutes}m ago';
       }
       return '${diff.inHours}h ago';

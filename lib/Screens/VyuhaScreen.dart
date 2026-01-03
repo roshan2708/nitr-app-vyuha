@@ -1,17 +1,28 @@
+// FILE: lib/screens/VyuhaScreen.dart
 import 'dart:async';
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart' hide Node;
 import 'package:graphview/GraphView.dart';
-import 'package:vyuha/Screens/KramScreen.dart'; 
+import 'package:cloud_firestore/cloud_firestore.dart'; // Needed for direct Firestore creation
 import 'package:vyuha/controllers/VyuhaController.dart';
 import 'package:vyuha/models/NodeModel.dart';
+
+// Imports for web-only features
 import 'package:flutter/foundation.dart' show kIsWeb;
+
+// Imports for image capture
 import 'dart:ui' as ui;
 import 'package:flutter/rendering.dart';
 import 'dart:typed_data';
+
+// Import the platform helper
 import 'package:vyuha/helpers/platform_helper.dart';
 import 'package:vyuha/models/CollaboratorModel.dart';
+
+// --- IMPORTS FOR SHARING ---
 import 'package:share_plus/share_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'dart:io';
@@ -28,7 +39,8 @@ class VyuhaScreen extends StatefulWidget {
 
 class _VyuhaScreenState extends State<VyuhaScreen> {
   // --- STATE VARIABLES ---
-  final TransformationController _transformationController = TransformationController();
+  final TransformationController _transformationController =
+      TransformationController();
   final GlobalKey _graphKey = GlobalKey(); 
   final PlatformHelper _platformHelper = PlatformHelper(); 
   double _currentScale = 1.0;
@@ -44,6 +56,7 @@ class _VyuhaScreenState extends State<VyuhaScreen> {
   Timer? _notificationTimer;
 
   Offset? _tapPosition;
+
   bool _isFullscreen = false; 
 
   @override
@@ -51,7 +64,7 @@ class _VyuhaScreenState extends State<VyuhaScreen> {
     super.initState();
     if (widget.roomId.isEmpty) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        Get.offAllNamed('/home');
+        Get.offAllNamed('/home'); 
       });
       return;
     }
@@ -84,32 +97,40 @@ class _VyuhaScreenState extends State<VyuhaScreen> {
     super.dispose();
   }
 
+  // --- MAIN BUILD METHOD ---
   @override
   Widget build(BuildContext context) {
     if (widget.roomId.isEmpty) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return const Scaffold(
+        body: Center(
+          child: CircularProgressIndicator(),
+        ),
+      );
     }
 
     final VyuhaController ctrl = Get.find<VyuhaController>(tag: widget.roomId);
     final screenWidth = MediaQuery.of(context).size.width;
     final isLargeScreen = screenWidth > 900;
     final scaffoldBg = _isDarkMode ? Color(0xFF0D0D0D) : Color(0xFFF4F4F4);
-    final iconColor = _isDarkMode ? Colors.white70 : Colors.black54;
 
-    // Use helper to build actions
+    final iconColor = _isDarkMode ? Colors.white70 : Colors.black54;
     final List<Widget> actions = _buildActions(ctrl, iconColor);
 
     return SafeArea(
       child: WillPopScope(
         onWillPop: () async {
-          Get.offAllNamed('/home');
-          return false;
+          Get.offAllNamed('/home'); 
+          return false; 
         },
         child: Scaffold(
           backgroundColor: scaffoldBg,
           appBar: (isLargeScreen || _isSearching)
               ? null
-              : _MobileAppBar(ctrl: ctrl, isDarkMode: _isDarkMode, actions: actions),
+              : _MobileAppBar(
+                  ctrl: ctrl,
+                  isDarkMode: _isDarkMode,
+                  actions: actions,
+                ),
           body: Obx(() {
             final nodes = ctrl.nodes;
             return Stack(
@@ -126,11 +147,16 @@ class _VyuhaScreenState extends State<VyuhaScreen> {
                     orientation: _orientation,
                     graphKey: _graphKey,
                     transformationController: _transformationController,
-                    onNodeTapDown: (details) => _tapPosition = details.globalPosition,
-                    onNodeTap: (ctx, node) {
-                      if (_tapPosition != null) _showNodeOptions(ctx, ctrl, node, _tapPosition!);
+                    onNodeTapDown: (details) {
+                      _tapPosition = details.globalPosition;
                     },
-                    onNodeLongPress: (ctx, node) => _showEditDialog(ctx, ctrl, node),
+                    onNodeTap: (ctx, node) {
+                      if (_tapPosition != null) {
+                        _showNodeOptions(ctx, ctrl, node, _tapPosition!);
+                      }
+                    },
+                    onNodeLongPress: (ctx, node) =>
+                        _showEditDialog(ctx, ctrl, node),
                   ),
                 if (nodes.isEmpty && !_isSearching)
                   _EmptyState(
@@ -139,11 +165,21 @@ class _VyuhaScreenState extends State<VyuhaScreen> {
                     onAddIdea: () => _showAddDialog(context, ctrl, null),
                   ),
                 if (isLargeScreen && !_isSearching)
-                  _TopLeftControls(ctrl: ctrl, isLargeScreen: isLargeScreen, isDarkMode: _isDarkMode),
+                  _TopLeftControls(
+                    ctrl: ctrl,
+                    isLargeScreen: isLargeScreen,
+                    isDarkMode: _isDarkMode,
+                  ),
                 if (isLargeScreen && !_isSearching)
-                  _TopRightControls(isDarkMode: _isDarkMode, actions: actions),
-                if (!_isSearching)
-                  _ZoomControls(isDarkMode: _isDarkMode, currentScale: _currentScale),
+                  _TopRightControls(
+                    isDarkMode: _isDarkMode,
+                    actions: actions,
+                  ),
+                if (!_isSearching) 
+                  _ZoomControls(
+                    isDarkMode: _isDarkMode,
+                    currentScale: _currentScale,
+                  ),
                 if (_isSearching)
                   _SearchOverlay(
                     isDarkMode: _isDarkMode,
@@ -174,6 +210,47 @@ class _VyuhaScreenState extends State<VyuhaScreen> {
     );
   }
 
+  // --- HELPER: Generate Passkey ---
+  String _generatePasskey() {
+    final random = Random();
+    return List.generate(6, (_) => random.nextInt(10)).join();
+  }
+
+  // --- HELPER: Generate Kram Logic ---
+  Future<void> _generateKramForNode(NodeModel node) async {
+    _showCustomNotification('Creating Kram for "${node.text}"...');
+    
+    try {
+      final firestore = FirebaseFirestore.instance;
+      // You might want to access the current user ID. 
+      // VyuhaController usually has 'uid'.
+      final ctrl = Get.find<VyuhaController>(tag: widget.roomId);
+      final uid = ctrl.uid;
+
+      // 1. Create the new Room document
+      final newRoomRef = await firestore.collection('rooms').add({
+        'title': '${node.text} Kram',
+        'owner': uid,
+        'passkey': _generatePasskey(),
+        'collaborators': [], // Start empty, or copy from current room if desired
+        'bannedUsers': [],
+        'createdAt': FieldValue.serverTimestamp(),
+        'type': 'kram',
+        'generationTopic': node.text,
+        'generationContext': 'Derived from Vyuha node: ${node.text}', 
+        'parentVyuhaId': widget.roomId, // Optional linkage
+        'parentNodeId': node.id,        // Optional linkage
+      });
+
+      // 2. Navigate there
+      Get.toNamed('/kram/${newRoomRef.id}');
+      
+    } catch (e) {
+      print('Error generating Kram: $e');
+      _showCustomNotification('Failed to generate Kram. $e', isError: true);
+    }
+  }
+
   // --- UI EVENT HANDLERS ---
 
   void _toggleFullScreen() {
@@ -184,7 +261,9 @@ class _VyuhaScreenState extends State<VyuhaScreen> {
   void _onTransformationChanged() {
     final newScale = _transformationController.value.getMaxScaleOnAxis();
     if ((_currentScale - newScale).abs() > 0.01) {
-      setState(() => _currentScale = newScale);
+      setState(() {
+        _currentScale = newScale;
+      });
     }
   }
 
@@ -194,13 +273,17 @@ class _VyuhaScreenState extends State<VyuhaScreen> {
       _isNotificationError = isError;
       _notificationTimer?.cancel();
       _notificationTimer = Timer(Duration(seconds: 3), () {
-        setState(() => _notificationMessage = null);
+        setState(() {
+          _notificationMessage = null;
+        });
       });
     });
   }
 
   void _startSearch() {
-    setState(() => _isSearching = true);
+    setState(() {
+      _isSearching = true;
+    });
     _searchFocusNode.requestFocus();
   }
 
@@ -212,25 +295,39 @@ class _VyuhaScreenState extends State<VyuhaScreen> {
     _searchFocusNode.unfocus();
   }
 
-  // --- ACTION BUILDER (FIXED) ---
+  // --- ACTION BUILDER ---
   List<Widget> _buildActions(VyuhaController ctrl, Color iconColor) {
     return [
       _buildToolbarButton(
-        _isDarkMode ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
+        _isDarkMode
+            ? Icons.light_mode_outlined
+            : Icons.dark_mode_outlined,
         _isDarkMode ? 'Light Mode' : 'Dark Mode',
         iconColor,
-        () => setState(() => _isDarkMode = !_isDarkMode),
+        () {
+          setState(() {
+            _isDarkMode = !_isDarkMode;
+          });
+        },
       ),
       _buildToolbarButton(
-        _orientation == BuchheimWalkerConfiguration.ORIENTATION_TOP_BOTTOM
-            ? Icons.account_tree_outlined : Icons.device_hub_outlined,
-        'Toggle Layout',
+        _orientation ==
+                BuchheimWalkerConfiguration.ORIENTATION_TOP_BOTTOM
+            ? Icons.account_tree_outlined
+            : Icons.device_hub_outlined,
+        _orientation ==
+                BuchheimWalkerConfiguration.ORIENTATION_TOP_BOTTOM
+            ? 'Vertical Layout'
+            : 'Horizontal Layout',
         iconColor,
-        () => setState(() {
-          _orientation = _orientation == BuchheimWalkerConfiguration.ORIENTATION_TOP_BOTTOM
-              ? BuchheimWalkerConfiguration.ORIENTATION_LEFT_RIGHT
-              : BuchheimWalkerConfiguration.ORIENTATION_TOP_BOTTOM;
-        }),
+        () {
+          setState(() {
+            _orientation = _orientation ==
+                    BuchheimWalkerConfiguration.ORIENTATION_TOP_BOTTOM
+                ? BuchheimWalkerConfiguration.ORIENTATION_LEFT_RIGHT
+                : BuchheimWalkerConfiguration.ORIENTATION_TOP_BOTTOM;
+          });
+        },
       ),
       if (kIsWeb)
         _buildToolbarButton(
@@ -239,20 +336,41 @@ class _VyuhaScreenState extends State<VyuhaScreen> {
           iconColor,
           _toggleFullScreen,
         ),
-      _buildToolbarButton(Icons.search, 'Search', iconColor, _startSearch),
-      
-      Obx(() => ctrl.isOwner.value 
-        ? _buildToolbarButton(Icons.share_outlined, 'Share', iconColor, () => _showShareDialog(context, ctrl)) 
-        : SizedBox.shrink()),
-        
-      Obx(() => ctrl.isOwner.value 
-        ? _buildToolbarButton(Icons.group_outlined, 'Collaborators', iconColor, () => _showCollaboratorDialog(context, ctrl)) 
-        : SizedBox.shrink()),
-      
+      _buildToolbarButton(
+        Icons.search,
+        'Search',
+        iconColor,
+        _startSearch,
+      ),
+      Obx(() {
+        if (ctrl.isOwner.value) {
+          return _buildToolbarButton(
+            Icons.share_outlined,
+            'Share Vyuha',
+            iconColor,
+            () => _showShareDialog(context, ctrl),
+          );
+        }
+        return SizedBox.shrink();
+      }),
+      Obx(() {
+        if (ctrl.isOwner.value) {
+          return _buildToolbarButton(
+            Icons.group_outlined, 
+            'Manage Collaborators',
+            iconColor,
+            () => _showCollaboratorDialog(context, ctrl),
+          );
+        }
+        return SizedBox.shrink();
+      }),
       PopupMenuButton<String>(
         icon: Icon(Icons.more_vert, color: iconColor, size: 22),
         color: _isDarkMode ? Color(0xFF2A2A2A) : Color(0xFFFDFDFD),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        tooltip: 'More options',
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+        ),
         itemBuilder: (context) => [
           PopupMenuItem(
             value: 'export_image',
@@ -260,7 +378,11 @@ class _VyuhaScreenState extends State<VyuhaScreen> {
               children: [
                 Icon(Icons.image_outlined, size: 18, color: iconColor),
                 SizedBox(width: 12),
-                Text('Export as Image', style: TextStyle(color: _isDarkMode ? Colors.white70 : Colors.black87)),
+                Text('Export as Image',
+                    style: TextStyle(
+                        color: _isDarkMode
+                            ? Colors.white70
+                            : Colors.black87)),
               ],
             ),
           ),
@@ -270,34 +392,44 @@ class _VyuhaScreenState extends State<VyuhaScreen> {
               children: [
                 Icon(Icons.download_outlined, size: 18, color: iconColor),
                 SizedBox(width: 12),
-                Text('Export as Text', style: TextStyle(color: _isDarkMode ? Colors.white70 : Colors.black87)),
+                Text('Export as Text',
+                    style: TextStyle(
+                        color: _isDarkMode
+                            ? Colors.white70
+                            : Colors.black87)),
               ],
             ),
           ),
-          // REMOVED GLOBAL "OPEN KRAM" HERE
           PopupMenuItem(
             value: 'clear',
             child: Row(
               children: [
-                Icon(Icons.delete_outline, size: 18, color: Colors.red.shade300),
+                Icon(Icons.delete_outline,
+                    size: 18, color: Colors.red.shade300),
                 SizedBox(width: 12),
-                Text('Clear All', style: TextStyle(color: Colors.red.shade300)),
+                Text('Clear All',
+                    style: TextStyle(color: Colors.red.shade300)),
               ],
             ),
           ),
         ],
         onSelected: (value) async {
-          if (value == 'export') _exportVyuha(context, ctrl);
-          else if (value == 'export_image') _exportVyuhaAsImage(context);
-          else if (value == 'clear') {
-            if (await _confirmAction(context, 'Clear all nodes?')) await ctrl.clearAllNodes();
+          if (value == 'export') {
+            _exportVyuha(context, ctrl);
+          } else if (value == 'export_image') {
+            _exportVyuhaAsImage(context);
+          } else if (value == 'clear') {
+            final confirm =
+                await _confirmAction(context, 'Clear all nodes?');
+            if (confirm) await ctrl.clearAllNodes();
           }
         },
       ),
     ];
   }
 
-  Widget _buildToolbarButton(IconData icon, String tooltip, Color iconColor, VoidCallback onPressed) {
+  Widget _buildToolbarButton(
+      IconData icon, String tooltip, Color iconColor, VoidCallback onPressed) {
     return IconButton(
       icon: Icon(icon, color: iconColor, size: 20),
       onPressed: onPressed,
@@ -318,101 +450,278 @@ class _VyuhaScreenState extends State<VyuhaScreen> {
       context: ctx,
       builder: (c) => Obx(() => AlertDialog(
             backgroundColor: dialogBg,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
             title: Row(
               children: [
                 Icon(Icons.share, color: Color(0xFF6B7FFF)),
                 SizedBox(width: 12),
-                Text('Share Vyuha', style: TextStyle(color: mainText, fontSize: 18)),
+                Text('Share Vyuha',
+                    style: TextStyle(color: mainText, fontSize: 18)),
               ],
             ),
             content: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Share this passkey with others to collaborate:', style: TextStyle(color: subText, fontSize: 14)),
+                Text(
+                  'Share this passkey with others to collaborate:',
+                  style: TextStyle(color: subText, fontSize: 14),
+                ),
                 SizedBox(height: 16),
                 Container(
                   padding: EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    color: _isDarkMode ? Color(0xFF2A2A2A) : Color(0xFFF0F0F0),
+                    color: _isDarkMode
+                        ? Color(0xFF2A2A2A)
+                        : Color(0xFFF0F0F0),
                     borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Color(0xFF6B7FFF), width: 2),
+                    border: Border.all(
+                      color: Color(0xFF6B7FFF),
+                      width: 2,
+                    ),
                   ),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text(
                         ctrl.passkey.value,
-                        style: TextStyle(color: mainText, fontSize: 24, fontWeight: FontWeight.bold, letterSpacing: 4),
+                        style: TextStyle(
+                          color: mainText,
+                          fontSize: 24,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 4,
+                        ),
                       ),
                       IconButton(
                         icon: Icon(Icons.copy, color: Color(0xFF6B7FFF)),
                         onPressed: () {
-                          Clipboard.setData(ClipboardData(text: ctrl.passkey.value));
-                          _showCustomNotification('Passkey copied to clipboard');
+                          Clipboard.setData(
+                              ClipboardData(text: ctrl.passkey.value));
+                          _showCustomNotification(
+                              'Passkey copied to clipboard');
                         },
+                        tooltip: 'Copy passkey',
                       ),
                     ],
+                  ),
+                ),
+                SizedBox(height: 12),
+                Text(
+                  'Anyone with this passkey can contribute to this Vyuha.',
+                  style: TextStyle(
+                    color: subText,
+                    fontSize: 12,
+                    fontStyle: FontStyle.italic,
                   ),
                 ),
               ],
             ),
             actions: [
-              TextButton(onPressed: () => Get.back(), child: Text('Close', style: TextStyle(color: subText))),
+              TextButton(
+                onPressed: () => Get.back(),
+                child: Text('Close', style: TextStyle(color: subText)),
+              ),
             ],
           )),
     );
   }
 
-  Future<void> _showCollaboratorDialog(BuildContext ctx, VyuhaController ctrl) async {
+  Future<void> _showCollaboratorDialog(
+      BuildContext ctx, VyuhaController ctrl) async {
     final dialogBg = _isDarkMode ? Color(0xFF1A1A1A) : Color(0xFFFDFDFD);
     final mainText = _isDarkMode ? Colors.white : Colors.black;
     final subText = _isDarkMode ? Colors.white54 : Colors.black54;
+    final dividerColor = _isDarkMode ? Colors.white12 : Colors.black12;
+
+    Widget _buildSectionTitle(String title) {
+      return Padding(
+        padding: const EdgeInsets.only(top: 16.0, bottom: 8.0, left: 4.0),
+        child: Text(
+          title,
+          style: TextStyle(
+            color: mainText,
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      );
+    }
+
+    Widget _buildEmptyState(String message) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 24.0),
+          child: Text(
+            message,
+            style: TextStyle(color: subText, fontSize: 14),
+          ),
+        ),
+      );
+    }
 
     await showDialog(
       context: ctx,
       builder: (c) => AlertDialog(
         backgroundColor: dialogBg,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Text('Collaborators', style: TextStyle(color: mainText)),
+        title: Row(
+          children: [
+            Icon(Icons.group_outlined, color: Color(0xFF6B7FFF)),
+            SizedBox(width: 12),
+            Text('Manage Collaborators',
+                style: TextStyle(color: mainText, fontSize: 18)),
+          ],
+        ),
         content: Container(
           width: kIsWeb ? 450 : double.maxFinite,
-          constraints: BoxConstraints(maxHeight: 400),
-          child: Obx(() {
-            if (ctrl.collaborators.isEmpty) return Center(child: Text("No collaborators yet.", style: TextStyle(color: subText)));
-            return ListView.builder(
-              itemCount: ctrl.collaborators.length,
-              itemBuilder: (context, index) {
-                final collaborator = ctrl.collaborators[index];
-                return ListTile(
-                  title: Text(collaborator.name, style: TextStyle(color: mainText)),
-                  subtitle: Text("@${collaborator.username}", style: TextStyle(color: subText)),
-                  trailing: collaborator.isOwner 
-                    ? Text("Owner", style: TextStyle(color: Color(0xFFF4991A), fontSize: 12))
-                    : IconButton(
-                        icon: Icon(Icons.remove_circle_outline, color: Colors.red.shade300),
-                        onPressed: () async {
-                           if(await _confirmAction(ctx, "Remove ${collaborator.name}?")) {
-                             await ctrl.removeCollaborator(collaborator.id);
-                             _showCustomNotification("Removed ${collaborator.name}");
-                           }
-                        },
-                      ),
-                );
-              },
-            );
-          }),
+          constraints: BoxConstraints(maxHeight: 500),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildSectionTitle('In this Vyuha'),
+                Obx(() {
+                  if (ctrl.collaborators.isEmpty) {
+                    return _buildEmptyState('Loading collaborators...');
+                  }
+                  return ListView.builder(
+                    shrinkWrap: true,
+                    physics: NeverScrollableScrollPhysics(),
+                    itemCount: ctrl.collaborators.length,
+                    itemBuilder: (context, index) {
+                      final collaborator = ctrl.collaborators[index];
+                      final isOwner = collaborator.isOwner;
+
+                      return ListTile(
+                        leading:
+                            Icon(Icons.person_outline, color: subText),
+                        title: Text(
+                          collaborator.name,
+                          style: TextStyle(
+                              color: mainText,
+                              fontWeight: FontWeight.w500),
+                        ),
+                        subtitle: Text(
+                          "@${collaborator.username}",
+                          style: TextStyle(color: subText, fontSize: 12),
+                        ),
+                        trailing: isOwner
+                            ? Container(
+                                padding: EdgeInsets.symmetric(
+                                    horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                    color:
+                                        Color(0xFFF4991A).withOpacity(0.2),
+                                    borderRadius:
+                                        BorderRadius.circular(6)),
+                                child: Text('Owner',
+                                    style: TextStyle(
+                                        color: Color(0xFFF4991A),
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.bold)),
+                              )
+                            : IconButton(
+                                icon: Icon(Icons.person_remove_outlined,
+                                    color: Colors.red.shade300),
+                                tooltip: 'Remove ${collaborator.name}',
+                                onPressed: () async {
+                                  final confirm = await _confirmAction(
+                                      ctx,
+                                      'Remove ${collaborator.name} from this Vyuha? They will be banned from re-joining.');
+                                  if (confirm) {
+                                    try {
+                                      await ctrl.removeCollaborator(
+                                          collaborator.id);
+                                      _showCustomNotification(
+                                          '${collaborator.name} has been removed and banned.');
+                                    } catch (e) {
+                                      _showCustomNotification(
+                                          e.toString(),
+                                          isError: true);
+                                    }
+                                  }
+                                },
+                              ),
+                      );
+                    },
+                  );
+                }),
+
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 12.0),
+                  child: Divider(color: dividerColor, height: 1),
+                ),
+
+                _buildSectionTitle('Banned Users'),
+                Obx(() {
+                  if (ctrl.bannedUsers.isEmpty) {
+                    return _buildEmptyState('No users are banned.');
+                  }
+                  return ListView.builder(
+                    shrinkWrap: true,
+                    physics: NeverScrollableScrollPhysics(),
+                    itemCount: ctrl.bannedUsers.length,
+                    itemBuilder: (context, index) {
+                      final bannedUser = ctrl.bannedUsers[index];
+                      
+                      return ListTile(
+                        leading: Icon(Icons.block, color: subText),
+                        title: Text(
+                          bannedUser.name,
+                          style: TextStyle(
+                              color: mainText.withOpacity(0.7),
+                              fontWeight: FontWeight.w500,
+                              decoration: TextDecoration.lineThrough),
+                        ),
+                        subtitle: Text(
+                          "@${bannedUser.username}",
+                          style:
+                              TextStyle(color: subText, fontSize: 12),
+                        ),
+                        trailing: IconButton(
+                          icon: Icon(Icons.undo,
+                              color: Colors.green.shade400),
+                          tooltip: 'Unblock ${bannedUser.name}',
+                          onPressed: () async {
+                            final confirm = await _confirmAction(
+                                ctx,
+                                'Unblock ${bannedUser.name}? They will be able to re-join using the passkey.');
+                            if (confirm) {
+                              try {
+                                await ctrl
+                                    .unblockCollaborator(bannedUser.id);
+                                _showCustomNotification(
+                                    '${bannedUser.name} has been unblocked.');
+                              } catch (e) {
+                                _showCustomNotification(e.toString(),
+                                    isError: true);
+                              }
+                            }
+                          },
+                        ),
+                      );
+                    },
+                  );
+                }),
+              ],
+            ),
+          ),
         ),
         actions: [
-          TextButton(onPressed: () => Get.back(), child: Text('Close', style: TextStyle(color: subText))),
+          TextButton(
+            onPressed: () => Get.back(),
+            child: Text('Close', style: TextStyle(color: subText)),
+          ),
         ],
       ),
     );
   }
 
-  // --- NODE OPTIONS (Includes KRAM Entry) ---
-  Future<void> _showNodeOptions(BuildContext ctx, VyuhaController ctrl, NodeModel node, Offset tapPosition) async {
+  // --- (MODIFIED) Node Options Dialog ---
+  Future<void> _showNodeOptions(BuildContext ctx, VyuhaController ctrl,
+      NodeModel node, Offset tapPosition) async {
     final isMyNode = node.authorId == ctrl.uid;
     final overlay = Overlay.of(ctx).context.findRenderObject() as RenderBox;
     final mainText = _isDarkMode ? Colors.white : Colors.black;
@@ -426,27 +735,39 @@ class _VyuhaScreenState extends State<VyuhaScreen> {
         Offset.zero & overlay.size,
       ),
       items: [
-        _buildContextMenuItem(Icons.add_circle_outline, 'Add Child', Color(0xFFF4991A), 'add_child'),
-        _buildContextMenuItem(Icons.auto_awesome, 'AI Expand', Color(0xFF6B7FFF), 'ai_expand'),
-        
-        // --- KRAM ENTRY POINT (FIXED) ---
-        PopupMenuItem<String>(
-          value: 'open_kram',
-          child: Row(
-            children: [
-              Icon(Icons.hub_outlined, color: Color(0xFFF4991A), size: 20),
-              SizedBox(width: 12),
-              Text('Deep Dive (Kram)', style: TextStyle(
-                color: _isDarkMode ? Colors.white.withOpacity(0.9) : Colors.black.withOpacity(0.9),
-                fontWeight: FontWeight.bold,
-              )),
-            ],
-          ),
+        _buildContextMenuItem(
+          icon: Icons.add_circle_outline,
+          label: 'Add Child',
+          color: Color(0xFFF4991A),
+          value: 'add_child',
         ),
-        // -------------------------------
-
-        if (isMyNode) _buildContextMenuItem(Icons.edit_outlined, 'Edit', mainText.withOpacity(0.8), 'edit'),
-        if (isMyNode) _buildContextMenuItem(Icons.delete_outline, 'Delete', Colors.red.shade300, 'delete'),
+        _buildContextMenuItem(
+          icon: Icons.auto_awesome,
+          label: 'AI Expand',
+          color: Color(0xFF6B7FFF),
+          value: 'ai_expand',
+        ),
+        // --- NEW OPTION: Generate Kram ---
+        _buildContextMenuItem(
+          icon: Icons.account_tree_outlined,
+          label: 'Generate Kram',
+          color: Color(0xFF8D5F8C),
+          value: 'generate_kram',
+        ),
+        if (isMyNode)
+          _buildContextMenuItem(
+            icon: Icons.edit_outlined,
+            label: 'Edit',
+            color: mainText.withOpacity(0.8),
+            value: 'edit',
+          ),
+        if (isMyNode)
+          _buildContextMenuItem(
+            icon: Icons.delete_outline,
+            label: 'Delete',
+            color: Colors.red.shade300,
+            value: 'delete',
+          ),
       ],
       elevation: 8.0,
     );
@@ -454,63 +775,111 @@ class _VyuhaScreenState extends State<VyuhaScreen> {
     if (selectedAction == null) return;
 
     switch (selectedAction) {
-      case 'add_child': _showAddDialog(ctx, ctrl, node.id); break;
-      case 'ai_expand': _showAIExpandDialog(ctx, ctrl, parentId: node.id, topic: node.text); break;
-      case 'edit': _showEditDialog(ctx, ctrl, node); break;
-      case 'delete':
-        if (await _confirmAction(ctx, 'Delete this node?')) await ctrl.deleteNode(node.id);
+      case 'add_child':
+        _showAddDialog(ctx, ctrl, node.id);
         break;
-      case 'open_kram':
-        // FIX: CALL WITH NAMED PARAMETERS
-        Get.to(
-          () => KramScreen(
-            roomId: ctrl.roomId,
-            nodeId: node.id,
-            nodeText: node.text,
-          ),
-        );
+      case 'ai_expand':
+        _showAIExpandDialog(ctx, ctrl,
+            parentId: node.id, topic: node.text);
+        break;
+      // --- NEW CASE ---
+      case 'generate_kram':
+        _generateKramForNode(node);
+        break;
+      case 'edit':
+        _showEditDialog(ctx, ctrl, node);
+        break;
+      case 'delete':
+        final confirm = await _confirmAction(
+            ctx, 'Delete this node and its children?');
+        if (confirm) await ctrl.deleteNode(node.id);
         break;
     }
   }
 
-  PopupMenuItem<String> _buildContextMenuItem(IconData icon, String label, Color color, String value) {
+  PopupMenuItem<String> _buildContextMenuItem({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required String value,
+  }) {
     return PopupMenuItem<String>(
       value: value,
       child: Row(
         children: [
           Icon(icon, color: color, size: 20),
           SizedBox(width: 12),
-          Text(label, style: TextStyle(
-            color: _isDarkMode ? Colors.white.withOpacity(0.9) : Colors.black.withOpacity(0.9),
-            fontSize: 14,
-          )),
+          Text(
+            label,
+            style: TextStyle(
+              color: _isDarkMode
+                  ? Colors.white.withOpacity(0.9)
+                  : Colors.black.withOpacity(0.9),
+              fontSize: 14,
+              fontWeight: FontWeight.w400,
+            ),
+          ),
         ],
       ),
     );
   }
 
-  Future<void> _showAddDialog(BuildContext ctx, VyuhaController ctrl, String? parentId) async {
+  Future<void> _showAddDialog(
+      BuildContext ctx, VyuhaController ctrl, String? parentId) async {
     final txt = TextEditingController();
+    final dialogBg = _isDarkMode ? Color(0xFF1A1A1A) : Color(0xFFFDFDFD);
+    final mainText = _isDarkMode ? Colors.white : Colors.black;
+    final hintText = _isDarkMode ? Colors.white38 : Colors.black38;
+    final subText = _isDarkMode ? Colors.white54 : Colors.black54;
+    final borderColor = _isDarkMode ? Color(0xFF9ECAD6) : Color(0xFF007A9B);
+
     await showDialog(
       context: ctx,
       builder: (c) => AlertDialog(
-        backgroundColor: _isDarkMode ? Color(0xFF1A1A1A) : Color(0xFFFDFDFD),
-        title: Text(parentId == null ? 'Add Root Idea' : 'Add Child Idea', style: TextStyle(color: _isDarkMode ? Colors.white : Colors.black)),
+        backgroundColor: dialogBg,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text(
+          parentId == null ? 'Add Root Idea' : 'Add Child Idea',
+          style: TextStyle(color: mainText, fontSize: 18),
+        ),
         content: Container(
           width: kIsWeb ? 450 : null,
           child: TextField(
             controller: txt,
-            style: TextStyle(color: _isDarkMode ? Colors.white : Colors.black),
-            decoration: InputDecoration(hintText: 'Enter idea...', hintStyle: TextStyle(color: Colors.grey)),
+            style: TextStyle(color: mainText),
+            decoration: InputDecoration(
+              hintText: 'Enter your idea...',
+              hintStyle: TextStyle(color: hintText),
+              enabledBorder: OutlineInputBorder(
+                borderSide: BorderSide(color: borderColor),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderSide: BorderSide(color: Color(0xFFF4991A), width: 2),
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+            maxLines: 3,
             autofocus: true,
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Get.back(), child: Text('Cancel')),
+          TextButton(
+            onPressed: () => Get.back(),
+            child: Text('Cancel', style: TextStyle(color: subText)),
+          ),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Color(0xFFF4991A)),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Color(0xFFF4991A),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
             onPressed: () async {
-              if (txt.text.isNotEmpty) await ctrl.addNode(txt.text.trim(), parentId: parentId ?? 'root');
+              final t = txt.text.trim();
+              if (t.isNotEmpty) {
+                await ctrl.addNode(t, parentId: parentId ?? 'root');
+              }
               Get.back();
             },
             child: Text('Add', style: TextStyle(color: Colors.white)),
@@ -520,27 +889,57 @@ class _VyuhaScreenState extends State<VyuhaScreen> {
     );
   }
 
-  Future<void> _showEditDialog(BuildContext ctx, VyuhaController ctrl, NodeModel node) async {
+  Future<void> _showEditDialog(
+      BuildContext ctx, VyuhaController ctrl, NodeModel node) async {
     final txt = TextEditingController(text: node.text);
+    final dialogBg = _isDarkMode ? Color(0xFF1A1A1A) : Color(0xFFFDFDFD);
+    final mainText = _isDarkMode ? Colors.white : Colors.black;
+    final subText = _isDarkMode ? Colors.white54 : Colors.black54;
+    final borderColor = _isDarkMode ? Color(0xFF9ECAD6) : Color(0xFF007A9B);
+
     await showDialog(
       context: ctx,
       builder: (c) => AlertDialog(
-        backgroundColor: _isDarkMode ? Color(0xFF1A1A1A) : Color(0xFFFDFDFD),
-        title: Text('Edit Idea', style: TextStyle(color: _isDarkMode ? Colors.white : Colors.black)),
+        backgroundColor: dialogBg,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text('Edit Idea',
+            style: TextStyle(color: mainText, fontSize: 18)),
         content: Container(
           width: kIsWeb ? 450 : null,
           child: TextField(
             controller: txt,
-            style: TextStyle(color: _isDarkMode ? Colors.white : Colors.black),
+            style: TextStyle(color: mainText),
+            decoration: InputDecoration(
+              enabledBorder: OutlineInputBorder(
+                borderSide: BorderSide(color: borderColor),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderSide: BorderSide(color: Color(0xFFF4991A), width: 2),
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+            maxLines: 3,
             autofocus: true,
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Get.back(), child: Text('Cancel')),
+          TextButton(
+            onPressed: () => Get.back(),
+            child: Text('Cancel', style: TextStyle(color: subText)),
+          ),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Color(0xFFF4991A)),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Color(0xFFF4991A),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
             onPressed: () async {
-              if (txt.text.isNotEmpty && txt.text != node.text) await ctrl.updateNode(node.id, txt.text.trim());
+              final t = txt.text.trim();
+              if (t.isNotEmpty && t != node.text) {
+                await ctrl.updateNode(node.id, t);
+              }
               Get.back();
             },
             child: Text('Update', style: TextStyle(color: Colors.white)),
@@ -550,128 +949,319 @@ class _VyuhaScreenState extends State<VyuhaScreen> {
     );
   }
 
-  Future<void> _showAIExpandDialog(BuildContext ctx, VyuhaController ctrl, {String? parentId, String? topic}) async {
+  Future<void> _showAIExpandDialog(BuildContext ctx, VyuhaController ctrl,
+      {String? parentId, String? topic}) async {
     final topicCtrl = TextEditingController(text: topic ?? '');
     final countCtrl = TextEditingController(text: '5');
-    
+    final dialogBg = _isDarkMode ? Color(0xFF1A1A1A) : Color(0xFFFDFDFD);
+    final mainText = _isDarkMode ? Colors.white : Colors.black;
+    final hintText = _isDarkMode ? Colors.white38 : Colors.black38;
+    final subText = _isDarkMode ? Colors.white54 : Colors.black54;
+    final borderColor = _isDarkMode ? Color(0xFF9ECAD6) : Color(0xFF007A9B);
+
     await showDialog(
       context: ctx,
       builder: (c) => AlertDialog(
-        backgroundColor: _isDarkMode ? Color(0xFF1A1A1A) : Color(0xFFFDFDFD),
-        title: Row(children: [Icon(Icons.auto_awesome, color: Color(0xFF6B7FFF)), SizedBox(width: 8), Text('AI Brainstorm', style: TextStyle(color: _isDarkMode ? Colors.white : Colors.black))]),
+        backgroundColor: dialogBg,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            Icon(Icons.auto_awesome, color: Color(0xFF6B7FFF)),
+            SizedBox(width: 12),
+            Text('AI Brainstorm',
+                style: TextStyle(color: mainText, fontSize: 18)),
+          ],
+        ),
         content: Container(
           width: kIsWeb ? 450 : null,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-               Obx(() {
-                 final uses = ctrl.aiUsesRemaining.value;
-                 return Text("Uses Remaining: $uses", style: TextStyle(color: Colors.grey, fontSize: 12));
-               }),
-               SizedBox(height: 8),
-               TextField(controller: topicCtrl, decoration: InputDecoration(labelText: "Topic"), style: TextStyle(color: _isDarkMode ? Colors.white : Colors.black)),
-               TextField(controller: countCtrl, decoration: InputDecoration(labelText: "Count (1-9)"), keyboardType: TextInputType.number, style: TextStyle(color: _isDarkMode ? Colors.white : Colors.black)),
+              Obx(() {
+                final uses = ctrl.aiUsesRemaining.value;
+                final resetTime = ctrl.aiUseResetTime.value;
+                String message;
+                Color msgColor;
+
+                if (uses > 0) {
+                  message = 'You have $uses AI expansions remaining.';
+                  msgColor = Color(0xFF6B7FFF);
+                } else if (resetTime != null &&
+                    resetTime.isAfter(DateTime.now())) {
+                  final hours = resetTime.difference(DateTime.now()).inHours;
+                  message = 'AI limit reached. Resets in ~${hours}h.';
+                  msgColor = Colors.red.shade300;
+                } else {
+                  message = 'AI limit reached. Resets soon.';
+                  msgColor = Colors.red.shade300;
+                }
+
+                return Container(
+                  width: double.maxFinite,
+                  padding: EdgeInsets.all(12),
+                  margin: EdgeInsets.only(bottom: 16),
+                  decoration: BoxDecoration(
+                      color: msgColor.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: msgColor.withOpacity(0.5))),
+                  child: Text(
+                    message,
+                    style: TextStyle(
+                        color: msgColor,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500),
+                    textAlign: TextAlign.center,
+                  ),
+                );
+              }),
+              TextField(
+                controller: topicCtrl,
+                style: TextStyle(color: mainText),
+                decoration: InputDecoration(
+                  labelText: 'Topic',
+                  labelStyle: TextStyle(color: subText),
+                  hintText: 'What should AI brainstorm about?',
+                  hintStyle: TextStyle(color: hintText),
+                  enabledBorder: OutlineInputBorder(
+                    borderSide: BorderSide(color: borderColor),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderSide: BorderSide(color: Color(0xFF6B7FFF), width: 2),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+              ),
+              SizedBox(height: 16),
+              TextField(
+                controller: countCtrl,
+                style: TextStyle(color: mainText),
+                decoration: InputDecoration(
+                  labelText: 'Number of ideas (1-9)', 
+                  labelStyle: TextStyle(color: subText),
+                  enabledBorder: OutlineInputBorder(
+                    borderSide: BorderSide(color: borderColor),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderSide: BorderSide(color: Color(0xFF6B7FFF), width: 2),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+                keyboardType: TextInputType.number,
+                inputFormatters: [
+                  FilteringTextInputFormatter.digitsOnly,
+                  LengthLimitingTextInputFormatter(1),
+                  TextInputFormatter.withFunction((oldValue, newValue) {
+                    if (newValue.text == '0') return oldValue; 
+                    return newValue;
+                  }),
+                ],
+              ),
             ],
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Get.back(), child: Text('Cancel')),
-          Obx(() => ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Color(0xFF6B7FFF)),
-            onPressed: ctrl.aiUsesRemaining.value > 0 ? () async {
-               if(topicCtrl.text.isNotEmpty) {
-                 Get.back();
-                 _showCustomNotification("AI Generating...");
-                 try {
-                   await ctrl.expandWithAI(topic: topicCtrl.text, count: int.tryParse(countCtrl.text) ?? 5, parentId: parentId);
-                   _showCustomNotification("Done!");
-                 } catch(e) {
-                   _showCustomNotification("Failed: $e", isError: true);
-                 }
-               }
-            } : null,
-            child: Text('Generate', style: TextStyle(color: Colors.white)),
-          ))
+          TextButton(
+            onPressed: () => Get.back(),
+            child: Text('Cancel', style: TextStyle(color: subText)),
+          ),
+          Obx(() => ElevatedButton.icon(
+                icon: Icon(Icons.auto_awesome, size: 18),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Color(0xFF6B7FFF),
+                  disabledBackgroundColor: Color(0xFF6B7FFF).withOpacity(0.5),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+                onPressed: ctrl.aiUsesRemaining.value > 0
+                    ? () async {
+                        final t = topicCtrl.text.trim();
+                        final count = int.tryParse(countCtrl.text) ?? 5;
+
+                        if (t.isNotEmpty && count > 0) {
+                          Get.back();
+                          _showCustomNotification('AI is generating ideas...');
+                          try {
+                            await ctrl.expandWithAI(
+                                topic: t, count: count, parentId: parentId);
+                            _showCustomNotification(
+                                'AI generation complete. ${ctrl.aiUsesRemaining.value} uses remaining.');
+                          } catch (e) {
+                            _showCustomNotification(
+                                e.toString().replaceFirst("Exception: ", ""),
+                                isError: true);
+                          }
+                        } else if (t.isEmpty) {
+                          _showCustomNotification('Please enter a topic',
+                              isError: true);
+                        } else {
+                          _showCustomNotification(
+                              'Please enter a valid number (1-9)',
+                              isError: true);
+                        }
+                      }
+                    : null, 
+                label: Text('Generate', style: TextStyle(color: Colors.white)),
+              ))
         ],
       ),
     );
   }
 
-  void _showSearchResults(BuildContext ctx, VyuhaController ctrl, List<NodeModel> results, String query) {
+  void _showSearchResults(BuildContext ctx, VyuhaController ctrl,
+      List<NodeModel> results, String query) {
+    final dialogBg = _isDarkMode ? Color(0xFF1A1A1A) : Color(0xFFFDFDFD);
+    final mainText = _isDarkMode ? Colors.white : Colors.black;
+    final subText = _isDarkMode ? Colors.white54 : Colors.black54;
+
     showDialog(
       context: ctx,
       builder: (c) => AlertDialog(
-        backgroundColor: _isDarkMode ? Color(0xFF1A1A1A) : Color(0xFFFDFDFD),
-        title: Text('Results for "$query"', style: TextStyle(color: _isDarkMode ? Colors.white : Colors.black)),
-        content: Container(
-          width: double.maxFinite,
-          child: results.isEmpty ? Text("No results") : ListView.builder(
-            shrinkWrap: true,
-            itemCount: results.length,
-            itemBuilder: (context, i) => ListTile(
-              title: Text(results[i].text, style: TextStyle(color: _isDarkMode ? Colors.white : Colors.black)),
-              onTap: () => Get.back(),
-            ),
-          ),
-        ),
-        actions: [TextButton(onPressed: () => Get.back(), child: Text('Close'))],
+        backgroundColor: dialogBg,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text('Results for "$query"',
+            style: TextStyle(color: mainText, fontSize: 18)),
+        content: results.isEmpty
+            ? Text('No matching nodes found',
+                style: TextStyle(color: subText))
+            : Container(
+                width: double.maxFinite,
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: results.length,
+                  itemBuilder: (context, i) {
+                    final node = results[i];
+                    return ListTile(
+                      title: Text(
+                        node.text,
+                        style: TextStyle(color: mainText.withOpacity(0.9)),
+                      ),
+                      trailing: Icon(Icons.arrow_forward,
+                          color: Color(0xFFF4991A), size: 18),
+                      onTap: () {
+                        Get.back();
+                      },
+                    );
+                  },
+                ),
+              ),
+        actions: [
+          TextButton(
+            onPressed: () => Get.back(),
+            child: Text('Close', style: TextStyle(color: subText)),
+          )
+        ],
       ),
     );
   }
 
   void _exportVyuha(BuildContext ctx, VyuhaController ctrl) {
     final export = ctrl.exportAsText();
+    final dialogBg = _isDarkMode ? Color(0xFF1A1A1A) : Color(0xFFFDFDFD);
+    final mainText = _isDarkMode ? Colors.white : Colors.black;
+    final subText = _isDarkMode ? Colors.white54 : Colors.black54;
+
     showDialog(
       context: ctx,
       builder: (c) => AlertDialog(
-        backgroundColor: _isDarkMode ? Color(0xFF1A1A1A) : Color(0xFFFDFDFD),
-        title: Text('Export Text', style: TextStyle(color: _isDarkMode ? Colors.white : Colors.black)),
-        content: SingleChildScrollView(child: SelectableText(export, style: TextStyle(color: _isDarkMode ? Colors.white : Colors.black))),
-        actions: [TextButton(onPressed: () => Get.back(), child: Text('Close'))],
+        backgroundColor: dialogBg,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text('Export Vyuha as Text',
+            style: TextStyle(color: mainText, fontSize: 18)),
+        content: SingleChildScrollView(
+          child: SelectableText(
+            export,
+            style: TextStyle(
+              color: mainText.withOpacity(0.85),
+              fontSize: 13,
+              fontFamily: 'monospace',
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Get.back(),
+            child: Text('Close', style: TextStyle(color: subText)),
+          )
+        ],
       ),
     );
   }
 
   Future<void> _exportVyuhaAsImage(BuildContext context) async {
     _showCustomNotification('Generating image...');
+
     try {
-      final boundary = _graphKey.currentContext!.findRenderObject() as RenderRepaintBoundary;
-      final image = await boundary.toImage(pixelRatio: 2.0);
-      final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
-      final pngBytes = byteData!.buffer.asUint8List();
+      final RenderRepaintBoundary boundary =
+          _graphKey.currentContext!.findRenderObject() as RenderRepaintBoundary;
+
+      final double pixelRatio = MediaQuery.of(context).devicePixelRatio;
+      final ui.Image image = await boundary.toImage(pixelRatio: pixelRatio);
+
+      final ByteData? byteData =
+          await image.toByteData(format: ui.ImageByteFormat.png);
+
+      if (byteData == null) {
+        throw Exception('Could not convert image to byte data.');
+      }
+
+      final Uint8List pngBytes = byteData.buffer.asUint8List();
 
       if (kIsWeb) {
         await _platformHelper.saveImage(pngBytes, 'Vyuha-Export.png');
-        _showCustomNotification('Image saved');
+        _showCustomNotification('Image export started');
       } else {
         final tempDir = await getTemporaryDirectory();
         final file = await File('${tempDir.path}/Vyuha-Export.png').create();
         await file.writeAsBytes(pngBytes);
-        await Share.shareXFiles([XFile(file.path)], text: 'Check out this Vyuha!');
-        _showCustomNotification('Share dialog opened');
+
+        await Share.shareXFiles(
+          [XFile(file.path)],
+          text: 'Check out this Vyuha brainstorm!',
+        );
+        _showCustomNotification('Image shared');
       }
     } catch (e) {
-      _showCustomNotification('Failed to export image', isError: true);
+      print('Error exporting image: $e');
+      _showCustomNotification('Failed to generate image', isError: true);
     }
   }
 
   Future<bool> _confirmAction(BuildContext ctx, String message) async {
-    return await showDialog(
+    final dialogBg = _isDarkMode ? Color(0xFF1A1A1A) : Color(0xFFFDFDFD);
+    final mainText = _isDarkMode ? Colors.white : Colors.black;
+    final subText = _isDarkMode ? Colors.white54 : Colors.black54;
+
+    final res = await showDialog<bool>(
       context: ctx,
       builder: (c) => AlertDialog(
-        backgroundColor: _isDarkMode ? Color(0xFF1A1A1A) : Color(0xFFFDFDFD),
-        title: Text('Confirm', style: TextStyle(color: _isDarkMode ? Colors.white : Colors.black)),
-        content: Text(message, style: TextStyle(color: _isDarkMode ? Colors.white70 : Colors.black87)),
+        backgroundColor: dialogBg,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text('Confirm',
+            style: TextStyle(color: mainText, fontSize: 18)),
+        content:
+            Text(message, style: TextStyle(color: mainText.withOpacity(0.85))),
         actions: [
-          TextButton(onPressed: () => Get.back(result: false), child: Text('Cancel')),
+          TextButton(
+            onPressed: () => Get.back(result: false),
+            child: Text('Cancel', style: TextStyle(color: subText)),
+          ),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            onPressed: () => Get.back(result: true), 
-            child: Text('Confirm', style: TextStyle(color: Colors.white))
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red.shade400,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+            onPressed: () => Get.back(result: true),
+            child: Text('Confirm', style: TextStyle(color: Colors.white)),
           ),
         ],
       ),
-    ) ?? false;
+    );
+    return res ?? false;
   }
 }
 
@@ -684,18 +1274,44 @@ class _MobileAppBar extends StatelessWidget implements PreferredSizeWidget {
   final bool isDarkMode;
   final List<Widget> actions;
 
-  const _MobileAppBar({required this.ctrl, required this.isDarkMode, required this.actions});
+  const _MobileAppBar({
+    Key? key,
+    required this.ctrl,
+    required this.isDarkMode,
+    required this.actions,
+  }) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
+    final panelBg = isDarkMode ? Color(0xFF1E1E1E) : Colors.white;
+    final iconColor = isDarkMode ? Colors.white70 : Colors.black54;
+    final titleColor = isDarkMode ? Colors.white : Colors.black;
+
     return AppBar(
-      backgroundColor: isDarkMode ? Color(0xFF1E1E1E) : Colors.white,
-      foregroundColor: isDarkMode ? Colors.white70 : Colors.black54,
-      automaticallyImplyLeading: false,
-      title: Obx(() => Text(ctrl.roomTitle.value, style: TextStyle(color: isDarkMode ? Colors.white : Colors.black, fontSize: 18), overflow: TextOverflow.ellipsis)),
+      backgroundColor: panelBg,
+      foregroundColor: iconColor,
+      elevation: 0.5,
+      centerTitle: false,
+      automaticallyImplyLeading: false, 
+      title: Obx(() {
+        final String fullTitle = ctrl.roomTitle.value;
+        final String title = fullTitle.length > 20
+            ? '${fullTitle.substring(0, 20)}...'
+            : fullTitle;
+        return Text(
+          title,
+          style: TextStyle(
+            color: titleColor,
+            fontSize: 18,
+            fontWeight: FontWeight.w500,
+          ),
+          overflow: TextOverflow.ellipsis,
+        );
+      }),
       actions: actions,
     );
   }
+
   @override
   Size get preferredSize => Size.fromHeight(kToolbarHeight);
 }
@@ -705,33 +1321,142 @@ class _TopLeftControls extends StatelessWidget {
   final bool isLargeScreen;
   final bool isDarkMode;
 
-  const _TopLeftControls({required this.ctrl, required this.isLargeScreen, required this.isDarkMode});
+  const _TopLeftControls({
+    Key? key,
+    required this.ctrl,
+    required this.isLargeScreen,
+    required this.isDarkMode,
+  }) : super(key: key);
+
+  Widget _statChip(
+      IconData icon, String label, Color color, bool isLargeScreen,
+      {String? tooltip}) {
+    final chip = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: isLargeScreen ? 15 : 14, color: color),
+        SizedBox(width: 6),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: isLargeScreen ? 13 : 12,
+            fontWeight: FontWeight.w500,
+            color: isDarkMode ? Colors.white70 : Colors.black87,
+            letterSpacing: 0.3,
+          ),
+        ),
+      ],
+    );
+
+    if (tooltip != null) {
+      return Tooltip(
+        message: tooltip,
+        child: chip,
+        waitDuration: Duration(milliseconds: 500),
+      );
+    }
+    return chip;
+  }
 
   @override
   Widget build(BuildContext context) {
     final panelBg = isDarkMode ? Color(0xFF1E1E1E) : Colors.white;
+    final panelBorder = isDarkMode ? Color(0xFF333333) : Color(0xFFE0E0E0);
+    final titleColor = isDarkMode ? Colors.white : Colors.black;
+
     return Positioned(
-      top: 20, left: 20,
+      top: 20,
+      left: 20,
       child: Container(
-        padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        padding: EdgeInsets.symmetric(
+            horizontal: 12, vertical: isLargeScreen ? 8 : 10),
         decoration: BoxDecoration(
           color: panelBg,
           borderRadius: BorderRadius.circular(12),
-          boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 4)],
+          border: Border.all(color: panelBorder),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.2),
+              blurRadius: 10,
+              offset: Offset(0, 4),
+            ),
+          ],
         ),
         child: Row(
           children: [
-            if(isLargeScreen) InkWell(
-              onTap: () => Get.offAllNamed('/home'),
-              child: Padding(padding: EdgeInsets.only(right: 12), child: Icon(Icons.arrow_back, size: 20, color: isDarkMode ? Colors.white70 : Colors.black54)),
-            ),
-            Obx(() => Text(ctrl.roomTitle.value, style: TextStyle(fontWeight: FontWeight.bold, color: isDarkMode ? Colors.white : Colors.black))),
-            SizedBox(width: 16),
-            Obx(() => Row(children: [
-               Icon(Icons.circle, size: 12, color: Color(0xFF6B7FFF)), SizedBox(width: 4), Text('${ctrl.nodes.length}', style: TextStyle(color: isDarkMode ? Colors.white70 : Colors.black87)),
-               SizedBox(width: 12),
-               Icon(Icons.people_outline, size: 14, color: Color(0xFFFF6B9D)), SizedBox(width: 4), Text('${ctrl.collaborators.length}', style: TextStyle(color: isDarkMode ? Colors.white70 : Colors.black87)),
-            ])),
+            if (isLargeScreen) ...[
+              InkWell(
+                onTap: () {
+                  Get.offAllNamed('/home'); 
+                },
+                borderRadius: BorderRadius.circular(8),
+                child: Padding(
+                  padding: const EdgeInsets.all(4.0),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(6),
+                    child: Image.asset(
+                      'assets/images/icon.png',
+                      height: 28,
+                      width: 28,
+                      fit: BoxFit.cover,
+                    ),
+                  ),
+                ),
+              ),
+              VerticalDivider(
+                color: panelBorder,
+                width: 24,
+                indent: 4,
+                endIndent: 4,
+              ),
+            ],
+            Obx(() {
+              final String fullTitle = ctrl.roomTitle.value;
+              final String title = isLargeScreen
+                  ? fullTitle
+                  : (fullTitle.length > 10
+                      ? '${fullTitle.substring(0, 10)}...'
+                      : fullTitle);
+              return Text(
+                title,
+                style: TextStyle(
+                  color: titleColor,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w500,
+                ),
+                overflow: TextOverflow.ellipsis,
+              );
+            }),
+            if (isLargeScreen) ...[
+              VerticalDivider(
+                color: panelBorder,
+                width: 24,
+                indent: 4,
+                endIndent: 4,
+              ),
+              Obx(() => Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _statChip(Icons.circle, '${ctrl.nodes.length}',
+                          Color(0xFF6B7FFF), isLargeScreen),
+                      SizedBox(width: 16),
+                      _statChip(Icons.layers_outlined, '${ctrl.getDepth()}',
+                          Color(0xFFF4991A), isLargeScreen),
+                      SizedBox(width: 16),
+                      _statChip(
+                          Icons.people_outline,
+                          '${ctrl.collaborators.length}',
+                          Color(0xFFFF6B9D),
+                          isLargeScreen,
+                          tooltip: 'Collaborators'),
+                      SizedBox(width: 16),
+                      _statChip(Icons.auto_awesome_outlined,
+                          '${ctrl.aiUsesRemaining.value}/15',
+                          Color(0xFF6B7FFF), isLargeScreen,
+                          tooltip: 'AI Expansions Remaining'),
+                    ],
+                  ))
+            ]
           ],
         ),
       ),
@@ -742,20 +1467,38 @@ class _TopLeftControls extends StatelessWidget {
 class _TopRightControls extends StatelessWidget {
   final bool isDarkMode;
   final List<Widget> actions;
-  const _TopRightControls({required this.isDarkMode, required this.actions});
+
+  const _TopRightControls({
+    Key? key,
+    required this.isDarkMode,
+    required this.actions,
+  }) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
+    final panelBg = isDarkMode ? Color(0xFF1E1E1E) : Colors.white;
+    final panelBorder = isDarkMode ? Color(0xFF333333) : Color(0xFFE0E0E0);
+
     return Positioned(
-      top: 20, right: 20,
+      top: 20,
+      right: 20,
       child: Container(
         padding: EdgeInsets.symmetric(horizontal: 8, vertical: 6),
         decoration: BoxDecoration(
-          color: isDarkMode ? Color(0xFF1E1E1E) : Colors.white,
+          color: panelBg,
           borderRadius: BorderRadius.circular(12),
-          boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 4)],
+          border: Border.all(color: panelBorder),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.2),
+              blurRadius: 10,
+              offset: Offset(0, 4),
+            ),
+          ],
         ),
-        child: Row(children: actions),
+        child: Row(
+          children: actions,
+        ),
       ),
     );
   }
@@ -764,20 +1507,45 @@ class _TopRightControls extends StatelessWidget {
 class _ZoomControls extends StatelessWidget {
   final bool isDarkMode;
   final double currentScale;
-  const _ZoomControls({required this.isDarkMode, required this.currentScale});
+
+  const _ZoomControls({
+    Key? key,
+    required this.isDarkMode,
+    required this.currentScale,
+  }) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
+    final panelBg = isDarkMode ? Color(0xFF1E1E1E) : Colors.white;
+    final panelBorder = isDarkMode ? Color(0xFF333333) : Color(0xFFE0E0E0);
+    final textColor = isDarkMode ? Colors.white70 : Colors.black54;
+
     return Positioned(
-      bottom: 20, right: 20,
+      bottom: 20,
+      right: 20,
       child: Container(
         padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
-          color: isDarkMode ? Color(0xFF1E1E1E) : Colors.white,
+          color: panelBg,
           borderRadius: BorderRadius.circular(10),
-          boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 4)],
+          border: Border.all(color: panelBorder),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.15),
+              blurRadius: 8,
+              offset: Offset(0, 2),
+            ),
+          ],
         ),
-        child: Text('${(currentScale * 100).toInt()}%', style: TextStyle(color: isDarkMode ? Colors.white70 : Colors.black54)),
+        child: Text(
+          '${(currentScale * 100).toInt()}%',
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w500,
+            color: textColor,
+            letterSpacing: 0.5,
+          ),
+        ),
       ),
     );
   }
@@ -791,31 +1559,77 @@ class _SearchOverlay extends StatelessWidget {
   final VoidCallback onCloseSearch;
   final ValueChanged<String> onQuerySubmitted;
 
-  const _SearchOverlay({required this.isDarkMode, required this.ctrl, required this.searchController, required this.searchFocusNode, required this.onCloseSearch, required this.onQuerySubmitted});
+  const _SearchOverlay({
+    Key? key,
+    required this.isDarkMode,
+    required this.ctrl,
+    required this.searchController,
+    required this.searchFocusNode,
+    required this.onCloseSearch,
+    required this.onQuerySubmitted,
+  }) : super(key: key);
+
+  Widget _buildSearchField(VyuhaController ctrl) {
+    return TextField(
+      controller: searchController,
+      focusNode: searchFocusNode,
+      autofocus: true,
+      style: TextStyle(
+          color: isDarkMode ? Colors.white : Colors.black, fontSize: 16),
+      decoration: InputDecoration(
+        hintText: 'Search nodes...',
+        hintStyle: TextStyle(
+            color: isDarkMode ? Colors.white54 : Colors.black54,
+            fontSize: 16),
+        border: InputBorder.none,
+        focusedBorder: InputBorder.none,
+        enabledBorder: InputBorder.none,
+      ),
+      onSubmitted: onQuerySubmitted,
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
+    final panelBg = isDarkMode ? Color(0xFF1E1E1E) : Colors.white;
+    final panelBorder = isDarkMode ? Color(0xFF333333) : Color(0xFFE0E0E0);
+    final iconColor = isDarkMode ? Colors.white70 : Colors.black54;
+
     return Positioned(
-      top: 0, left: 0, right: 0,
+      top: 0,
+      left: 0,
+      right: 0,
       child: Container(
         height: 80,
-        color: (isDarkMode ? Color(0xFF1E1E1E) : Colors.white).withOpacity(0.95),
-        padding: EdgeInsets.symmetric(horizontal: 20),
-        alignment: Alignment.center,
-        child: Row(
-          children: [
-            Icon(Icons.search, color: Colors.grey),
-            SizedBox(width: 10),
-            Expanded(child: TextField(
-              controller: searchController,
-              focusNode: searchFocusNode,
-              autofocus: true,
-              style: TextStyle(color: isDarkMode ? Colors.white : Colors.black),
-              decoration: InputDecoration(border: InputBorder.none, hintText: "Search..."),
-              onSubmitted: onQuerySubmitted,
-            )),
-            IconButton(icon: Icon(Icons.close, color: Colors.grey), onPressed: onCloseSearch),
+        padding: EdgeInsets.only(top: 15),
+        decoration: BoxDecoration(
+          color: panelBg.withOpacity(0.95),
+          border: Border(bottom: BorderSide(color: panelBorder)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.2),
+              blurRadius: 10,
+            ),
           ],
+        ),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxWidth: 600),
+            child: Row(
+              children: [
+                SizedBox(width: 16),
+                Icon(Icons.search, color: iconColor, size: 22),
+                SizedBox(width: 12),
+                Expanded(child: _buildSearchField(ctrl)),
+                IconButton(
+                  icon: Icon(Icons.close, color: iconColor, size: 22),
+                  onPressed: onCloseSearch,
+                  tooltip: 'Close search',
+                ),
+                SizedBox(width: 8),
+              ],
+            ),
+          ),
         ),
       ),
     );
@@ -827,23 +1641,67 @@ class _NotificationWidget extends StatelessWidget {
   final bool isNotificationError;
   final bool isDarkMode;
 
-  const _NotificationWidget({this.notificationMessage, required this.isNotificationError, required this.isDarkMode});
+  const _NotificationWidget({
+    Key? key,
+    this.notificationMessage,
+    required this.isNotificationError,
+    required this.isDarkMode,
+  }) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
-    if (notificationMessage == null) return SizedBox.shrink();
     return Positioned(
-      bottom: 30, left: 0, right: 0,
-      child: Center(
-        child: Container(
-          padding: EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-          decoration: BoxDecoration(
-            color: isNotificationError ? Colors.red.shade100 : (isDarkMode ? Color(0xFF333333) : Colors.white),
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: isNotificationError ? Colors.red : Colors.grey.withOpacity(0.3)),
-          ),
-          child: Text(notificationMessage!, style: TextStyle(color: isNotificationError ? Colors.red.shade900 : (isDarkMode ? Colors.white : Colors.black))),
-        ),
+      bottom: 30,
+      left: 0,
+      right: 0,
+      child: AnimatedSwitcher(
+        duration: Duration(milliseconds: 300),
+        transitionBuilder: (child, animation) {
+          return SlideTransition(
+            position: Tween<Offset>(
+              begin: Offset(0.0, 1.0),
+              end: Offset(0.0, 0.0),
+            ).animate(animation),
+            child: child,
+          );
+        },
+        child: notificationMessage == null
+            ? SizedBox.shrink()
+            : Center(
+                key: ValueKey(notificationMessage),
+                child: Container(
+                  constraints: BoxConstraints(maxWidth: 500),
+                  margin: EdgeInsets.symmetric(horizontal: 15),
+                  padding: EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: isDarkMode ? Color(0xFF1E1E1E) : Colors.white,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: isNotificationError
+                          ? Colors.red.shade300
+                          : (isDarkMode
+                              ? Color(0xFF333333)
+                              : Color(0xFFE0E0E0)),
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.2),
+                        blurRadius: 10,
+                        offset: Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: Text(
+                    notificationMessage!,
+                    style: TextStyle(
+                      color: isNotificationError
+                          ? Colors.red.shade300
+                          : (isDarkMode ? Colors.white : Colors.black),
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ),
       ),
     );
   }
@@ -854,25 +1712,69 @@ class _EmptyState extends StatelessWidget {
   final bool isLargeScreen;
   final VoidCallback onAddIdea;
 
-  const _EmptyState({required this.isDarkMode, required this.isLargeScreen, required this.onAddIdea});
+  const _EmptyState({
+    Key? key,
+    required this.isDarkMode,
+    required this.isLargeScreen,
+    required this.onAddIdea,
+  }) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.psychology_outlined, size: 64, color: Colors.grey.withOpacity(0.5)),
-          SizedBox(height: 16),
-          Text("No ideas yet", style: TextStyle(fontSize: 20, color: Colors.grey)),
-          SizedBox(height: 24),
-          ElevatedButton.icon(
-            onPressed: onAddIdea,
-            icon: Icon(Icons.add),
-            label: Text("Add Idea"),
-            style: ElevatedButton.styleFrom(backgroundColor: Color(0xFFF4991A), foregroundColor: Colors.white),
-          )
-        ],
+    final mainText = isDarkMode ? Colors.white54 : Colors.black54;
+    final subText = isDarkMode ? Colors.white38 : Colors.black38;
+
+    return Container(
+      color: Colors.transparent,
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.psychology_outlined,
+                size: isLargeScreen ? 72 : 64, color: Color(0xFF9ECAD6)),
+            SizedBox(height: 20),
+            Text(
+              'No ideas yet',
+              style: TextStyle(
+                fontSize: isLargeScreen ? 20 : 18,
+                color: mainText,
+                fontWeight: FontWeight.w300,
+              ),
+            ),
+            SizedBox(height: 8),
+            Text(
+              'Start your brainstorm',
+              style: TextStyle(
+                fontSize: 13,
+                color: subText,
+                fontWeight: FontWeight.w300,
+              ),
+            ),
+            SizedBox(height: 32),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                ElevatedButton.icon(
+                  onPressed: onAddIdea,
+                  icon: Icon(Icons.add, size: 18),
+                  label: Text('Add Idea'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Color(0xFFF4991A),
+                    foregroundColor: Colors.white,
+                    padding: EdgeInsets.symmetric(
+                        horizontal: isLargeScreen ? 24 : 20,
+                        vertical: isLargeScreen ? 14 : 12),
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                ),
+                SizedBox(width: 12),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -890,6 +1792,7 @@ class _GraphWidget extends StatelessWidget {
   final Function(BuildContext, NodeModel) onNodeLongPress;
 
   const _GraphWidget({
+    Key? key,
     required this.ctrl,
     required this.isLargeScreen,
     required this.isDarkMode,
@@ -899,7 +1802,7 @@ class _GraphWidget extends StatelessWidget {
     required this.onNodeTapDown,
     required this.onNodeTap,
     required this.onNodeLongPress,
-  });
+  }) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
@@ -926,7 +1829,9 @@ class _GraphWidget extends StatelessWidget {
     }
 
     for (var w in nodeWidgets.values) {
-      if (!graph.nodes.contains(w)) graph.addNode(w);
+      if (!graph.nodes.contains(w)) {
+        graph.addNode(w);
+      }
     }
 
     final builder = BuchheimWalkerConfiguration()
@@ -936,25 +1841,31 @@ class _GraphWidget extends StatelessWidget {
       ..orientation = orientation;
 
     return InteractiveViewer(
-      transformationController: transformationController,
-      constrained: false,
-      boundaryMargin: EdgeInsets.all(1000),
-      minScale: 0.1,
-      maxScale: 4.0,
-      child: RepaintBoundary(
-        key: graphKey,
-        child: GraphView(
-          graph: graph,
-          algorithm: BuchheimWalkerAlgorithm(builder, TreeEdgeRenderer(builder)),
-          paint: Paint()
-            ..color = isDarkMode ? const Color(0xFF9ECAD6) : Color(0xFF007A9B)
-            ..strokeWidth = 1.5
-            ..style = PaintingStyle.stroke,
-          builder: (Node node) => node.key!.value as Widget,
-          animated: false,
-        ),
+  transformationController: transformationController,
+  constrained: false, 
+  boundaryMargin: EdgeInsets.all(500),
+  minScale: 0.1,
+  maxScale: 4.0,
+  panEnabled: true,
+  scaleEnabled: true,
+  child: RepaintBoundary(
+    key: graphKey,
+    child: GraphView(
+      graph: graph,
+      algorithm: BuchheimWalkerAlgorithm(
+        builder,
+        TreeEdgeRenderer(builder),
       ),
-    );
+      paint: Paint()
+        ..color =
+            isDarkMode ? const Color(0xFF9ECAD6) : Color(0xFF007A9B)
+        ..strokeWidth = 1.5
+        ..style = PaintingStyle.stroke,
+      builder: (Node node) => node.key!.value as Widget,
+      animated: false,
+    ),
+  ),
+);
   }
 }
 
@@ -967,38 +1878,123 @@ class _VyuhaNodeWidget extends StatelessWidget {
   final VoidCallback onTap;
   final VoidCallback onLongPress;
 
-  const _VyuhaNodeWidget({required this.ctrl, required this.node, required this.isLargeScreen, required this.isDarkMode, required this.onTapDown, required this.onTap, required this.onLongPress});
+  const _VyuhaNodeWidget({
+    Key? key,
+    required this.ctrl,
+    required this.node,
+    required this.isLargeScreen,
+    required this.isDarkMode,
+    required this.onTapDown,
+    required this.onTap,
+    required this.onLongPress,
+  }) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
     final isMyNode = node.authorId == ctrl.uid;
     final depth = ctrl.getNodeDepth(node.id);
     final childCount = ctrl.getChildrenCount(node.id);
-    final colors = [Color(0xFF6B7FFF), Color(0xFFF4991A), Color(0xFFFF6B9D), Color(0xFFFFA07A), Color(0xFF98D8C8)];
+
+    final colors = [
+      Color(0xFF6B7FFF),
+      Color(0xFFF4991A),
+      Color(0xFFFF6B9D),
+      Color(0xFFFFA07A),
+      Color(0xFF98D8C8),
+    ];
     final accentColor = colors[depth % colors.length];
+
+    final nodeBg = isDarkMode ? Color(0xFF1A1A1A) : Color(0xFFFFFFFF);
+    final nodeText =
+        isDarkMode ? Colors.white.withOpacity(0.95) : Colors.black;
+    final nodeBorder = isDarkMode ? Color(0xFF9ECAD6) : Color(0xFF007A9B);
+    final childCountBg = isDarkMode ? Color(0xFF9ECAD6) : Color(0xFF007A9B);
+    final childCountText = isDarkMode ? Colors.white54 : Colors.white;
+    final shadowColor = isDarkMode
+        ? Colors.black.withOpacity(0.3)
+        : Colors.grey.withOpacity(0.2);
 
     return GestureDetector(
       onTapDown: onTapDown,
       onTap: onTap,
       onLongPress: onLongPress,
       child: Container(
-        constraints: BoxConstraints(maxWidth: isLargeScreen ? 240 : 220, minWidth: 140),
+        constraints: BoxConstraints(
+            maxWidth: isLargeScreen ? 240 : 220, minWidth: 140),
         padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         decoration: BoxDecoration(
-          color: isDarkMode ? Color(0xFF1A1A1A) : Colors.white,
+          color: nodeBg,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: isMyNode ? accentColor : (isDarkMode ? Color(0xFF9ECAD6) : Color(0xFF007A9B)), width: isMyNode ? 2 : 1),
-          boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 8, offset: Offset(0, 4))],
+          border: Border.all(
+            color: isMyNode ? accentColor : nodeBorder,
+            width: isMyNode ? 2 : 1,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: shadowColor,
+              blurRadius: 8,
+              offset: Offset(0, 4),
+            ),
+          ],
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(node.text, style: TextStyle(color: isDarkMode ? Colors.white : Colors.black, fontSize: 13)),
-            if (childCount > 0) ...[
-              SizedBox(height: 8),
-              Row(children: [Icon(Icons.subdirectory_arrow_right, size: 10, color: Colors.grey), SizedBox(width: 4), Text("$childCount", style: TextStyle(fontSize: 10, color: Colors.grey))])
-            ]
+            Text(
+              node.text,
+              style: TextStyle(
+                color: nodeText,
+                fontWeight: FontWeight.w400,
+                fontSize: isLargeScreen ? 14 : 13,
+                height: 1.4,
+                letterSpacing: 0.2,
+              ),
+            ),
+            if (childCount > 0 || !isMyNode) ...[
+              SizedBox(height: 10),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (childCount > 0) ...[
+                    Container(
+                      padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: childCountBg,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.subdirectory_arrow_right,
+                              size: 10, color: childCountText),
+                          SizedBox(width: 3),
+                          Text(
+                            '$childCount',
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: childCountText,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (!isMyNode) SizedBox(width: 6),
+                  ],
+                  if (!isMyNode)
+                    Container(
+                      padding: EdgeInsets.all(3),
+                      decoration: BoxDecoration(
+                        color: accentColor.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(3),
+                      ),
+                      child: Icon(Icons.person_outline,
+                          size: 10, color: accentColor),
+                    ),
+                ],
+              ),
+            ],
           ],
         ),
       ),
@@ -1009,12 +2005,36 @@ class _VyuhaNodeWidget extends StatelessWidget {
 class GridBackgroundPainter extends CustomPainter {
   final bool isDarkMode;
   GridBackgroundPainter({this.isDarkMode = true});
+
   @override
   void paint(Canvas canvas, Size size) {
-    final paint = Paint()..color = (isDarkMode ? Colors.white : Colors.black).withOpacity(0.05)..style = PaintingStyle.stroke..strokeWidth = 1;
-    for (double x = 0; x < size.width; x += 40) canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
-    for (double y = 0; y < size.height; y += 40) canvas.drawLine(Offset(0, y), Offset(size.width, y), paint);
+    final paint = Paint()
+      ..color = isDarkMode
+          ? Color(0xFF1A1A1A).withOpacity(0.5)
+          : Color(0xFFE0E0E0)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 0.5;
+
+    const double gridSpacing = 40.0;
+
+    for (double x = 0; x < size.width; x += gridSpacing) {
+      canvas.drawLine(
+        Offset(x, 0),
+        Offset(x, size.height),
+        paint,
+      );
+    }
+
+    for (double y = 0; y < size.height; y += gridSpacing) {
+      canvas.drawLine(
+        Offset(0, y),
+        Offset(size.width, y),
+        paint,
+      );
+    }
   }
+
   @override
-  bool shouldRepaint(covariant GridBackgroundPainter old) => old.isDarkMode != isDarkMode;
+  bool shouldRepaint(covariant GridBackgroundPainter oldDelegate) =>
+      oldDelegate.isDarkMode != isDarkMode;
 }
