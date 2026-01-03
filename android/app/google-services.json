@@ -1,0 +1,55 @@
+{
+  "project_info": {
+    "project_number": "322778540049",
+    "firebase_url": "https://vyuha-1cdb8-default-rtdb.firebaseio.com",
+    "project_id": "vyuha-1cdb8",
+    "storage_bucket": "vyuha-1cdb8.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:322778540049:android:71658cfd56018e561729b0",
+        "android_client_info": {
+          "package_name": "com.example.vyuha"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "322778540049-b97e8g63292b21h23b0d3l5cdna9ee69.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.vyuha",
+            "certificate_hash": "bc333db36b1171428efcbd007aa873d9e0ea49a0"
+          }
+        },
+        {
+          "client_id": "322778540049-6526pvl916i1rn05gg43q5ffas93ug2h.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDe4xuC-khloM0-OjwQeE_cJF7P2l-hWms"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "322778540049-6526pvl916i1rn05gg43q5ffas93ug2h.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "322778540049-gekkav9nss9obqg5klsp1mfd3jq11658.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.vyuha"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
