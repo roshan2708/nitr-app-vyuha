@@ -17,11 +17,13 @@ import 'package:flutter/rendering.dart';
 import 'dart:typed_data';
 
 import 'package:vyuha/helpers/platform_helper.dart';
-import 'package:vyuha/models/CollaboratorModel.dart';
 
 import 'package:share_plus/share_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'dart:io';
+
+// ADDED: For date formatting in comments
+import 'package:intl/intl.dart';
 
 class VyuhaScreen extends StatefulWidget {
   final String roomId;
@@ -726,6 +728,12 @@ class _VyuhaScreenState extends State<VyuhaScreen> {
           value: 'add_child',
         ),
         _buildContextMenuItem(
+          icon: Icons.chat_bubble_outline,
+          label: 'Comments',
+          color: Color(0xFF6B7FFF),
+          value: 'comments',
+        ),
+        _buildContextMenuItem(
           icon: Icons.auto_awesome,
           label: 'AI Expand',
           color: Color(0xFF6B7FFF),
@@ -736,12 +744,6 @@ class _VyuhaScreenState extends State<VyuhaScreen> {
           label: 'AI Explain',
           color: Color(0xFF6B7FFF),
           value: 'ai_explain',
-        ),
-        _buildContextMenuItem(
-          icon: Icons.account_tree_outlined,
-          label: 'Generate Flow Chart',
-          color: Color(0xFF8D5F8C),
-          value: 'generate_kram',
         ),
         if (isMyNode)
           _buildContextMenuItem(
@@ -767,6 +769,9 @@ class _VyuhaScreenState extends State<VyuhaScreen> {
       case 'add_child':
         _showAddDialog(ctx, ctrl, node.id);
         break;
+      case 'comments':
+        _showCommentsDialog(ctx, ctrl, node);
+        break;
       case 'ai_expand':
         _showAIExpandDialog(ctx, ctrl,
             parentId: node.id, topic: node.text);
@@ -786,6 +791,230 @@ class _VyuhaScreenState extends State<VyuhaScreen> {
         if (confirm) await ctrl.deleteNode(node.id);
         break;
     }
+  }
+
+  // --- NEW: Comments Dialog Implementation ---
+  Future<void> _showCommentsDialog(
+      BuildContext ctx, VyuhaController ctrl, NodeModel node) async {
+    final commentCtrl = TextEditingController();
+    final dialogBg = _isDarkMode ? Color(0xFF1E1E1E) : Colors.white;
+    final mainText = _isDarkMode ? Colors.white : Colors.black;
+    final subText = _isDarkMode ? Colors.white54 : Colors.black54;
+    final borderColor = _isDarkMode ? Color(0xFF333333) : Color(0xFFE0E0E0);
+
+    await showModalBottomSheet(
+      context: ctx,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        height: MediaQuery.of(context).size.height * 0.75,
+        decoration: BoxDecoration(
+          color: dialogBg,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: Column(
+          children: [
+            // Header
+            Container(
+              padding: EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                border: Border(bottom: BorderSide(color: borderColor)),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.chat_bubble_outline, color: Color(0xFF6B7FFF)),
+                  SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      'Comments on "${node.text}"',
+                      style: TextStyle(
+                          color: mainText,
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  IconButton(
+                    icon: Icon(Icons.close, color: subText),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
+              ),
+            ),
+
+            // Comments List
+            Expanded(
+              child: Obx(() {
+                final nodeComments = ctrl.getCommentsForNode(node.id);
+                if (nodeComments.isEmpty) {
+                  return Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.chat_bubble_outline,
+                            size: 48, color: subText.withOpacity(0.2)),
+                        SizedBox(height: 12),
+                        Text('No comments yet',
+                            style: TextStyle(color: subText)),
+                      ],
+                    ),
+                  );
+                }
+
+                return ListView.builder(
+                  padding: EdgeInsets.all(16),
+                  itemCount: nodeComments.length,
+                  itemBuilder: (context, index) {
+                    final comment = nodeComments[index];
+                    final isMe = comment.authorId == ctrl.uid;
+
+                    return Container(
+                      margin: EdgeInsets.only(bottom: 16),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisAlignment: isMe
+                            ? MainAxisAlignment.end
+                            : MainAxisAlignment.start,
+                        children: [
+                          if (!isMe)
+                            CircleAvatar(
+                              radius: 16,
+                              backgroundColor:
+                                  Color(0xFF6B7FFF).withOpacity(0.2),
+                              child: Text(comment.authorName[0].toUpperCase(),
+                                  style: TextStyle(
+                                      color: Color(0xFF6B7FFF),
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold)),
+                            ),
+                          if (!isMe) SizedBox(width: 8),
+                          Flexible(
+                            child: Column(
+                              crossAxisAlignment: isMe
+                                  ? CrossAxisAlignment.end
+                                  : CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      comment.authorName,
+                                      style: TextStyle(
+                                          color: subText,
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.bold),
+                                    ),
+                                    SizedBox(width: 6),
+                                    Text(
+                                      DateFormat('MMM d, h:mm a')
+                                          .format(comment.createdAt),
+                                      style: TextStyle(
+                                          color: subText.withOpacity(0.5),
+                                          fontSize: 10),
+                                    ),
+                                  ],
+                                ),
+                                SizedBox(height: 4),
+                                Container(
+                                  padding: EdgeInsets.symmetric(
+                                      horizontal: 12, vertical: 8),
+                                  decoration: BoxDecoration(
+                                    color: isMe
+                                        ? Color(0xFF6B7FFF).withOpacity(0.15)
+                                        : (
+                                          _isDarkMode
+                                            ? Color(0xFF2A2A2A)
+                                            : Color(0xFFF0F0F0)),
+                                    borderRadius:
+                                        BorderRadius.circular(12).copyWith(
+                                      topLeft: Radius.circular(isMe ? 12 : 0),
+                                      topRight: Radius.circular(isMe ? 0 : 12),
+                                    ),
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        comment.text,
+                                        style: TextStyle(
+                                            color: mainText, fontSize: 14),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                if (isMe)
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 2.0),
+                                    child: InkWell(
+                                      onTap: () =>
+                                          ctrl.deleteComment(comment.id),
+                                      child: Text('Delete',
+                                          style: TextStyle(
+                                              color: Colors.red.shade300,
+                                              fontSize: 10)),
+                                    ),
+                                  )
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                );
+              }),
+            ),
+
+            // Input Area
+            Container(
+              padding: EdgeInsets.fromLTRB(16, 12, 16,
+                  16 + MediaQuery.of(context).viewInsets.bottom),
+              decoration: BoxDecoration(
+                color: dialogBg,
+                border: Border(top: BorderSide(color: borderColor)),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: commentCtrl,
+                      style: TextStyle(color: mainText),
+                      decoration: InputDecoration(
+                        hintText: 'Write a comment...',
+                        hintStyle: TextStyle(color: subText),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(24),
+                          borderSide: BorderSide.none,
+                        ),
+                        filled: true,
+                        fillColor: _isDarkMode
+                            ? Color(0xFF2A2A2A)
+                            : Color(0xFFF0F0F0),
+                        contentPadding: EdgeInsets.symmetric(
+                            horizontal: 20, vertical: 10),
+                      ),
+                      minLines: 1,
+                      maxLines: 4,
+                    ),
+                  ),
+                  SizedBox(width: 8),
+                  IconButton(
+                    icon: Icon(Icons.send, color: Color(0xFF6B7FFF)),
+                    onPressed: () {
+                      if (commentCtrl.text.trim().isNotEmpty) {
+                        ctrl.addComment(node.id, commentCtrl.text);
+                        commentCtrl.clear();
+                      }
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   PopupMenuItem<String> _buildContextMenuItem({
@@ -2130,7 +2359,7 @@ class _VyuhaNodeWidget extends StatelessWidget {
   Widget build(BuildContext context) {
     final isMyNode = node.authorId == ctrl.uid;
     final depth = ctrl.getNodeDepth(node.id);
-    final childCount = ctrl.getChildrenCount(node.id);
+    // Moved childCount into Obx below for reactivity alongside comments
 
     final colors = [
       Color(0xFF6B7FFF),
@@ -2188,50 +2417,90 @@ class _VyuhaNodeWidget extends StatelessWidget {
                 letterSpacing: 0.2,
               ),
             ),
-            if (childCount > 0 || !isMyNode) ...[
-              SizedBox(height: 10),
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (childCount > 0) ...[
-                    Container(
-                      padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: childCountBg,
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.subdirectory_arrow_right,
-                              size: 10, color: childCountText),
-                          SizedBox(width: 3),
-                          Text(
-                            '$childCount',
-                            style: TextStyle(
-                              fontSize: 10,
-                              color: childCountText,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    if (!isMyNode) SizedBox(width: 6),
-                  ],
-                  if (!isMyNode)
-                    Container(
-                      padding: EdgeInsets.all(3),
-                      decoration: BoxDecoration(
-                        color: accentColor.withOpacity(0.2),
-                        borderRadius: BorderRadius.circular(3),
-                      ),
-                      child: Icon(Icons.person_outline,
-                          size: 10, color: accentColor),
-                    ),
-                ],
-              ),
-            ],
+            // Updated to be reactive for comments
+            Obx(() {
+               final childCount = ctrl.getChildrenCount(node.id);
+               final commentCount = ctrl.comments.where((c) => c.nodeId == node.id).length;
+               
+               // If nothing to show and it's my node (so no author icon needed), return empty
+               if (childCount == 0 && commentCount == 0 && isMyNode) {
+                  return SizedBox.shrink();
+               }
+
+               return Padding(
+                 padding: const EdgeInsets.only(top: 10.0),
+                 child: Row(
+                   mainAxisSize: MainAxisSize.min,
+                   children: [
+                     if (childCount > 0) ...[
+                       Container(
+                         padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                         decoration: BoxDecoration(
+                           color: childCountBg,
+                           borderRadius: BorderRadius.circular(4),
+                         ),
+                         child: Row(
+                           mainAxisSize: MainAxisSize.min,
+                           children: [
+                             Icon(Icons.subdirectory_arrow_right,
+                                 size: 10, color: childCountText),
+                             SizedBox(width: 3),
+                             Text(
+                               '$childCount',
+                               style: TextStyle(
+                                 fontSize: 10,
+                                 color: childCountText,
+                                 fontWeight: FontWeight.w500,
+                               ),
+                             ),
+                           ],
+                         ),
+                       ),
+                       SizedBox(width: 6),
+                     ],
+                     
+                     // COMMENT INDICATOR
+                     if (commentCount > 0) ...[
+                       Container(
+                         padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                         decoration: BoxDecoration(
+                           color: Color(0xFF6B7FFF).withOpacity(0.15),
+                           borderRadius: BorderRadius.circular(4),
+                         ),
+                         child: Row(
+                           mainAxisSize: MainAxisSize.min,
+                           children: [
+                             Icon(Icons.chat_bubble,
+                                 size: 10, color: Color(0xFF6B7FFF)),
+                             SizedBox(width: 4),
+                             Text(
+                               '$commentCount',
+                               style: TextStyle(
+                                 fontSize: 10,
+                                 color: Color(0xFF6B7FFF),
+                                 fontWeight: FontWeight.w600,
+                               ),
+                             ),
+                           ],
+                         ),
+                       ),
+                       SizedBox(width: 6),
+                     ],
+
+                     if (!isMyNode)
+                       Container(
+                         padding: EdgeInsets.all(3),
+                         decoration: BoxDecoration(
+                           color: accentColor.withOpacity(0.2),
+                           borderRadius: BorderRadius.circular(3),
+                         ),
+                         child: Icon(Icons.person_outline,
+                             size: 10, color: accentColor),
+                       ),
+                   ],
+                 ),
+               );
+            }),
           ],
         ),
       ),
