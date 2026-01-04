@@ -1,6 +1,4 @@
 // FILE: lib/controllers/KramController.dart
-// Fixed "replaceLast" error by using standard Dart string methods.
-
 import 'dart:async';
 import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -36,7 +34,9 @@ class KramController extends GetxController {
   final RxList<CollaboratorModel> collaborators = <CollaboratorModel>[].obs;
   final RxList<CollaboratorModel> bannedUsers = <CollaboratorModel>[].obs;
 
-  final gemini = GeminiService();
+  // REMOVED: final gemini = GeminiService(); 
+  // We instantiate this locally to prevent history accumulation.
+  
   final authController = Get.find<AuthController>();
   late final String uid;
   late final DocumentReference roomRef;
@@ -114,8 +114,11 @@ class KramController extends GetxController {
       final owner = data['owner'] ?? '';
       isOwner.value = owner == uid;
 
+      // Check if AI generation is requested via Firestore flags
       if (data.containsKey('generationContext') &&
           data.containsKey('generationTopic')) {
+        // This is called inside a listener, so we rely on _generateKramFromAI's 
+        // internal guard to prevent double-execution.
         _generateKramFromAI(
           data['generationTopic'],
           data['generationContext'],
@@ -333,7 +336,7 @@ class KramController extends GetxController {
       raw = raw.replaceFirst('```', '');
     }
     
-    // --- FIX: Use substring instead of replaceLast ---
+    // Using substring instead of replaceLast for compatibility
     if (raw.endsWith('```')) {
       raw = raw.substring(0, raw.length - 3);
     }
@@ -342,6 +345,9 @@ class KramController extends GetxController {
   }
 
   Future<void> _generateKramFromAI(String topic, String context) async {
+    // 1. Guard against concurrent executions (e.g. from rapid snapshot updates)
+    if (isGeneratingAI.value) return; 
+    
     isGeneratingAI.value = true;
     try {
       if (aiUsesRemaining.value <= 0) {
@@ -354,7 +360,12 @@ class KramController extends GetxController {
         throw Exception('AI limit reached. $resetMsg');
       }
 
-      String jsonString = await gemini.generateKramFlowchart(topic, context);
+      // 2. Instantiate locally to ensure stateless request
+      final gemini = GeminiService(); 
+
+      // 3. Add timeout to prevent hanging
+      String jsonString = await gemini.generateKramFlowchart(topic, context)
+          .timeout(const Duration(seconds: 30));
       
       // Clean JSON
       jsonString = _cleanJsonString(jsonString);

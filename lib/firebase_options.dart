@@ -62,10 +62,11 @@ class DefaultFirebaseOptions {
 
   static const FirebaseOptions android = FirebaseOptions(
     apiKey: 'AIzaSyCRXsbQJjvWyK6qS8Cy55Um95PxVlQXf3Q',
-    appId: '1:309845711634:android:52b76711c72add5a17b1cb',
+    appId: '1:309845711634:android:bcac08152395b7cf17b1cb',
     messagingSenderId: '309845711634',
     projectId: 'nitrvyuha',
     databaseURL: 'https://nitrvyuha-default-rtdb.firebaseio.com',
     storageBucket: 'nitrvyuha.firebasestorage.app',
   );
+
 }

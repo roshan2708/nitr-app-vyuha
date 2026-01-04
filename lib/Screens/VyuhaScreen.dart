@@ -739,7 +739,7 @@ class _VyuhaScreenState extends State<VyuhaScreen> {
         ),
         _buildContextMenuItem(
           icon: Icons.account_tree_outlined,
-          label: 'Generate Kram',
+          label: 'Generate Flow Chart',
           color: Color(0xFF8D5F8C),
           value: 'generate_kram',
         ),
