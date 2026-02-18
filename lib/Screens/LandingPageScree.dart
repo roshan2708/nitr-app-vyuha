@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class LandingScreen extends StatelessWidget {
   @override
@@ -106,7 +107,10 @@ class LandingScreen extends StatelessWidget {
   }
 
   Widget _buildHeroSection(
-      Color primaryColor, Color textColor, Color subtleTextColor) {
+    Color primaryColor,
+    Color textColor,
+    Color subtleTextColor,
+  ) {
     return Container(
       padding: EdgeInsets.symmetric(vertical: 60),
       child: Column(
@@ -126,30 +130,62 @@ class LandingScreen extends StatelessWidget {
             'Welcome to Vyuha. The real-time, collaborative mind-mapping tool\n'
             'built to bring your team\'s thoughts to life.',
             textAlign: TextAlign.center,
-            style: TextStyle(
-              color: subtleTextColor,
-              fontSize: 20,
-              height: 1.5,
-            ),
+            style: TextStyle(color: subtleTextColor, fontSize: 20, height: 1.5),
           ),
           SizedBox(height: 40),
-          ElevatedButton(
-            onPressed: () => Get.toNamed('/login'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: primaryColor,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
+          Wrap(
+            spacing: 20,
+            runSpacing: 20,
+            alignment: WrapAlignment.center,
+            children: [
+              ElevatedButton(
+                onPressed: () => Get.toNamed('/login'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: primaryColor,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  padding: EdgeInsets.symmetric(horizontal: 32, vertical: 20),
+                ),
+                child: Text(
+                  'Start Mapping for Free',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
               ),
-              padding: EdgeInsets.symmetric(horizontal: 32, vertical: 20),
-            ),
-            child: Text(
-              'Start Mapping for Free',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 18,
-                fontWeight: FontWeight.w600,
+              OutlinedButton.icon(
+                onPressed: () async {
+                  final Uri url = Uri.parse(
+                    'https://github.com/roshan2708/nitr-app-vyuha/releases/download/V01/app-release.apk',
+                  );
+                  if (!await launchUrl(
+                    url,
+                    mode: LaunchMode.externalApplication,
+                  )) {
+                    print('Could not launch $url');
+                  }
+                },
+                icon: Icon(Icons.android, color: primaryColor),
+                label: Text(
+                  'Download App',
+                  style: TextStyle(
+                    color: primaryColor,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                style: OutlinedButton.styleFrom(
+                  side: BorderSide(color: primaryColor, width: 2),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  padding: EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+                ),
               ),
-            ),
+            ],
           ),
         ],
       ),
@@ -157,7 +193,10 @@ class LandingScreen extends StatelessWidget {
   }
 
   Widget _buildFeaturesSection(
-      Color textColor, Color subtleTextColor, Color primaryColor) {
+    Color textColor,
+    Color subtleTextColor,
+    Color primaryColor,
+  ) {
     return Column(
       children: [
         Text(
@@ -173,10 +212,7 @@ class LandingScreen extends StatelessWidget {
         Text(
           'Vyuha is designed to be powerful, not complicated.',
           textAlign: TextAlign.center,
-          style: TextStyle(
-            color: subtleTextColor,
-            fontSize: 18,
-          ),
+          style: TextStyle(color: subtleTextColor, fontSize: 18),
         ),
         SizedBox(height: 60),
         Wrap(
@@ -211,11 +247,12 @@ class LandingScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildFeatureCard(
-      {required IconData icon,
-      required String title,
-      required String description,
-      required Color iconColor}) {
+  Widget _buildFeatureCard({
+    required IconData icon,
+    required String title,
+    required String description,
+    required Color iconColor,
+  }) {
     return Container(
       width: 350,
       padding: EdgeInsets.all(24),
@@ -240,11 +277,7 @@ class LandingScreen extends StatelessWidget {
           SizedBox(height: 8),
           Text(
             description,
-            style: TextStyle(
-              color: Colors.white70,
-              fontSize: 16,
-              height: 1.5,
-            ),
+            style: TextStyle(color: Colors.white70, fontSize: 16, height: 1.5),
           ),
         ],
       ),

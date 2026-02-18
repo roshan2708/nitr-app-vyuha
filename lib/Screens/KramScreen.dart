@@ -14,18 +14,18 @@ import 'package:get/get.dart';
 import 'package:vyuha/controllers/KramController.dart';
 import 'package:vyuha/models/KramModel.dart';
 import 'package:vyuha/helpers/platform_helper.dart';
-import 'package:vyuha/models/CollaboratorModel.dart';
+
 import 'dart:typed_data'; // Needed for PNG export
 import 'package:share_plus/share_plus.dart'; // Needed for PNG export
 
 // --- ENUMS for UI State ---
-enum Tool { move, addProcess, addDecision, addStartEnd, connect }
+enum Tool { move, addProcess, addDecision, addStartEnd, addNote, connect }
 
 class KramScreen extends StatefulWidget {
   final String roomId;
   KramScreen({Key? key, String? roomId})
-      : roomId = roomId ?? Get.arguments as String? ?? '',
-        super(key: key);
+    : roomId = roomId ?? Get.arguments as String? ?? '',
+      super(key: key);
 
   @override
   State<KramScreen> createState() => _KramScreenState();
@@ -43,7 +43,7 @@ class _KramScreenState extends State<KramScreen> {
 
   // --- UI/CANVAS STATE ---
   final GlobalKey _canvasKey = GlobalKey();
-  final GlobalKey _exportKey = GlobalKey(); 
+  final GlobalKey _exportKey = GlobalKey();
   Tool _currentTool = Tool.move;
 
   // --- MARQUEE SELECTION ---
@@ -73,8 +73,10 @@ class _KramScreenState extends State<KramScreen> {
     ctrl.transformationController.addListener(_onTransformationChanged);
 
     // Ensure we exit fullscreen if we init the screen
-    SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual,
-        overlays: SystemUiOverlay.values);
+    SystemChrome.setEnabledSystemUIMode(
+      SystemUiMode.manual,
+      overlays: SystemUiOverlay.values,
+    );
   }
 
   @override
@@ -83,8 +85,10 @@ class _KramScreenState extends State<KramScreen> {
       ctrl.transformationController.removeListener(_onTransformationChanged);
     }
     // Ensure we exit fullscreen when leaving
-    SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual,
-        overlays: SystemUiOverlay.values);
+    SystemChrome.setEnabledSystemUIMode(
+      SystemUiMode.manual,
+      overlays: SystemUiOverlay.values,
+    );
     _notificationTimer?.cancel();
     super.dispose();
   }
@@ -121,7 +125,7 @@ class _KramScreenState extends State<KramScreen> {
                 // 2. The Interactive Canvas
                 _KramCanvas(
                   key: _canvasKey,
-                  exportKey: _exportKey, 
+                  exportKey: _exportKey,
                   ctrl: ctrl,
                   isDarkMode: _isDarkMode,
                   // Callbacks
@@ -156,9 +160,10 @@ class _KramScreenState extends State<KramScreen> {
                         children: [
                           CircularProgressIndicator(color: Color(0xFF8D5F8C)),
                           SizedBox(height: 20),
-                          Text('AI is generating Kram...',
-                              style:
-                                  TextStyle(color: Colors.white, fontSize: 16)),
+                          Text(
+                            'AI is generating Kram...',
+                            style: TextStyle(color: Colors.white, fontSize: 16),
+                          ),
                         ],
                       ),
                     ),
@@ -188,6 +193,9 @@ class _KramScreenState extends State<KramScreen> {
                   isNotificationError: _isNotificationError,
                   isDarkMode: _isDarkMode,
                 ),
+
+                // 6. Minimap (above toolbar on mobile)
+                _Minimap(ctrl: ctrl, isDarkMode: _isDarkMode),
               ],
             );
           }),
@@ -209,7 +217,8 @@ class _KramScreenState extends State<KramScreen> {
     });
     Get.changeThemeMode(_isDarkMode ? ThemeMode.dark : ThemeMode.light);
     _showCustomNotification(
-        _isDarkMode ? "Switched to Dark Mode" : "Switched to Light Mode");
+      _isDarkMode ? "Switched to Dark Mode" : "Switched to Light Mode",
+    );
   }
 
   void _toggleFullscreen() {
@@ -219,11 +228,14 @@ class _KramScreenState extends State<KramScreen> {
     if (_isFullscreen) {
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     } else {
-      SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual,
-          overlays: SystemUiOverlay.values);
+      SystemChrome.setEnabledSystemUIMode(
+        SystemUiMode.manual,
+        overlays: SystemUiOverlay.values,
+      );
     }
     _showCustomNotification(
-        _isFullscreen ? "Entered Fullscreen" : "Exited Fullscreen");
+      _isFullscreen ? "Entered Fullscreen" : "Exited Fullscreen",
+    );
   }
 
   // --- MODIFIED: Export Function ---
@@ -235,7 +247,8 @@ class _KramScreenState extends State<KramScreen> {
     try {
       // 1. Find the RenderRepaintBoundary
       RenderRepaintBoundary boundary =
-          _exportKey.currentContext!.findRenderObject() as RenderRepaintBoundary;
+          _exportKey.currentContext!.findRenderObject()
+              as RenderRepaintBoundary;
 
       // 2. Convert to image
       final pixelRatio = MediaQuery.of(context).devicePixelRatio;
@@ -243,8 +256,7 @@ class _KramScreenState extends State<KramScreen> {
       final image = await boundary.toImage(pixelRatio: max(pixelRatio, 2.0));
 
       // 3. Convert to ByteData
-      ByteData? byteData =
-          await image.toByteData(format: ImageByteFormat.png);
+      ByteData? byteData = await image.toByteData(format: ImageByteFormat.png);
       if (byteData == null) {
         throw Exception("Could not convert image to ByteData");
       }
@@ -253,28 +265,24 @@ class _KramScreenState extends State<KramScreen> {
       Uint8List pngBytes = byteData.buffer.asUint8List();
 
       // 5. Define file details
-      final roomName =
-          ctrl.roomTitle.value.isNotEmpty ? ctrl.roomTitle.value : "Kram";
+      final roomName = ctrl.roomTitle.value.isNotEmpty
+          ? ctrl.roomTitle.value
+          : "Kram";
       final fileName =
           'vyuha_kram_${DateTime.now().millisecondsSinceEpoch}.png';
 
       // 6. Share the file using XFile.fromData
       await Share.shareXFiles(
-        [
-          XFile.fromData(
-            pngBytes,
-            name: fileName,
-            mimeType: 'image/png',
-          )
-        ],
+        [XFile.fromData(pngBytes, name: fileName, mimeType: 'image/png')],
         text: 'Here is the Kram diagram "$roomName" from Vyuha!',
         subject: 'Vyuha Kram Diagram',
       );
-
     } catch (e) {
       print("Error exporting image: $e");
-      _showCustomNotification("Error exporting image. Please try again.",
-          isError: true);
+      _showCustomNotification(
+        "Error exporting image. Please try again.",
+        isError: true,
+      );
     }
   }
 
@@ -303,7 +311,9 @@ class _KramScreenState extends State<KramScreen> {
     final matrix = ctrl.transformationController.value;
     final invertedMatrix = Matrix4.inverted(matrix);
     return MatrixUtils.transformPoint(
-        invertedMatrix, globalPosition - canvasOffset);
+      invertedMatrix,
+      globalPosition - canvasOffset,
+    );
   }
 
   KramElementModel? _findNodeAtPosition(Offset canvasPos) {
@@ -341,9 +351,15 @@ class _KramScreenState extends State<KramScreen> {
         type = 'start';
         text = 'Start';
         break;
+      case Tool.addNote:
+        ctrl.addNote('New Note', canvasPos);
+        setState(() {
+          _currentTool = Tool.move;
+        });
+        break;
       case Tool.move:
       case Tool.connect:
-      default:
+        // default:
         // Clear selection if tapping canvas in move/connect mode
         ctrl.clearSelection();
         break;
@@ -445,7 +461,10 @@ class _KramScreenState extends State<KramScreen> {
   // --- CONNECTION GESTURE HANDLERS ---
 
   void _onConnectPanStart(
-      String nodeId, AnchorSide anchor, Offset globalPosition) {
+    String nodeId,
+    AnchorSide anchor,
+    Offset globalPosition,
+  ) {
     if (_currentTool != Tool.connect) {
       // Allow connection by dragging from anchor even if not in connect mode
     }
@@ -471,8 +490,12 @@ class _KramScreenState extends State<KramScreen> {
         targetAnchor != null &&
         targetNodeId != _connectFromNodeId) {
       // Success! Create the edge.
-      ctrl.addEdge(_connectFromNodeId!, _connectFromAnchor!, targetNodeId,
-          targetAnchor);
+      ctrl.addEdge(
+        _connectFromNodeId!,
+        _connectFromAnchor!,
+        targetNodeId,
+        targetAnchor,
+      );
     } else {
       // Missed, or dropped on self
       if (_connectFromNodeId != null) {
@@ -499,23 +522,31 @@ class _KramScreenState extends State<KramScreen> {
       context: context,
       builder: (c) => AlertDialog(
         backgroundColor: _isDarkMode ? Color(0xFF1A1A1A) : Colors.white,
-        title: Text('Edit Element',
-            style: TextStyle(color: _isDarkMode ? Colors.white : Colors.black)),
+        title: Text(
+          'Edit Element',
+          style: TextStyle(color: _isDarkMode ? Colors.white : Colors.black),
+        ),
         content: TextField(
           controller: txt,
           style: TextStyle(color: _isDarkMode ? Colors.white : Colors.black),
           decoration: InputDecoration(
-              hintText: 'Enter text...',
-              hintStyle: TextStyle(
-                  color: _isDarkMode ? Colors.white38 : Colors.black38)),
+            hintText: 'Enter text...',
+            hintStyle: TextStyle(
+              color: _isDarkMode ? Colors.white38 : Colors.black38,
+            ),
+          ),
           autofocus: true,
         ),
         actions: [
           TextButton(
-              onPressed: () => Get.back(),
-              child: Text('Cancel',
-                  style: TextStyle(
-                      color: _isDarkMode ? Colors.white54 : Colors.black54))),
+            onPressed: () => Get.back(),
+            child: Text(
+              'Cancel',
+              style: TextStyle(
+                color: _isDarkMode ? Colors.white54 : Colors.black54,
+              ),
+            ),
+          ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Color(0xFF8D5F8C)),
             onPressed: () {
@@ -543,17 +574,21 @@ class _KramScreenState extends State<KramScreen> {
       ),
       items: [
         PopupMenuItem(
-            value: 'edit',
-            child: Text('Edit Text',
-                style: TextStyle(
-                    color: _isDarkMode ? Colors.white : Colors.black))),
+          value: 'edit',
+          child: Text(
+            'Edit Text',
+            style: TextStyle(color: _isDarkMode ? Colors.white : Colors.black),
+          ),
+        ),
         PopupMenuItem(
-            value: 'delete',
-            child: Text(
-                ctrl.selectedElementIds.length > 1
-                    ? 'Delete ${ctrl.selectedElementIds.length} Items'
-                    : 'Delete',
-                style: TextStyle(color: Colors.red.shade300))),
+          value: 'delete',
+          child: Text(
+            ctrl.selectedElementIds.length > 1
+                ? 'Delete ${ctrl.selectedElementIds.length} Items'
+                : 'Delete',
+            style: TextStyle(color: Colors.red.shade300),
+          ),
+        ),
       ],
     ).then((value) {
       if (value == 'edit') {
@@ -572,7 +607,7 @@ class _KramScreenState extends State<KramScreen> {
 // -------------------------------------------------------------------
 
 class _KramCanvas extends StatelessWidget {
-  final GlobalKey exportKey; 
+  final GlobalKey exportKey;
   final KramController ctrl;
   final bool isDarkMode;
   // --- Callbacks ---
@@ -646,6 +681,7 @@ class _KramCanvas extends StatelessWidget {
           child: Obx(() {
             final elements = ctrl.elements;
             final edges = ctrl.edges;
+            final notes = ctrl.notes;
             final cursors = ctrl.activeCursors;
 
             // Calculate bounds for Stack
@@ -678,6 +714,15 @@ class _KramCanvas extends StatelessWidget {
                       ),
                       child: Container(),
                     ),
+
+                    // 1.5 Notes (Sticky Notes)
+                    ...notes.map((note) {
+                      return _KramNoteWidget(
+                        note: note,
+                        ctrl: ctrl,
+                        isDarkMode: isDarkMode,
+                      );
+                    }).toList(),
 
                     // 2. Positioned Elements (Nodes)
                     ...elements.map((el) {
@@ -712,7 +757,9 @@ class _KramCanvas extends StatelessWidget {
                           decoration: BoxDecoration(
                             color: Color(0xFF8D5F8C).withOpacity(0.1),
                             border: Border.all(
-                                color: Color(0xFF8D5F8C), width: 1.5),
+                              color: Color(0xFF8D5F8C),
+                              width: 1.5,
+                            ),
                           ),
                         ),
                       ),
@@ -778,6 +825,7 @@ class _KramElementWidget extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = _getColor(element.type);
+    final bgColor = _getBackgroundColor(element.type);
     final shape = _getShape(element.type, color);
     final double elWidth = element.width;
     final double elHeight = element.height;
@@ -785,28 +833,54 @@ class _KramElementWidget extends StatelessWidget {
     return Obx(() {
       final isSelected = ctrl.selectedElementIds.contains(element.id);
 
-      final node = Container(
+      final node = AnimatedContainer(
+        duration: Duration(milliseconds: 150),
         width: elWidth,
         height: elHeight,
         padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         decoration: ShapeDecoration(
-          color: isDarkMode ? Color(0xFF1E1E1E) : Colors.white,
+          color: isDarkMode ? bgColor.withOpacity(0.25) : bgColor,
           shape: shape,
           shadows: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.2),
-              blurRadius: 8,
-              offset: Offset(0, 4),
-            )
+              color: isSelected
+                  ? color.withOpacity(0.35)
+                  : Colors.black.withOpacity(isDarkMode ? 0.4 : 0.12),
+              blurRadius: isSelected ? 16 : 10,
+              spreadRadius: isSelected ? 1 : 0,
+              offset: Offset(0, isSelected ? 2 : 4),
+            ),
           ],
         ),
-        child: Center(
-          child: Text(
-            element.text,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-                color: isDarkMode ? Colors.white : Colors.black, fontSize: 13),
-          ),
+        child: Row(
+          children: [
+            // Color accent bar for process nodes
+            if (element.type == 'process')
+              Container(
+                width: 4,
+                height: elHeight * 0.5,
+                margin: EdgeInsets.only(right: 10),
+                decoration: BoxDecoration(
+                  color: color,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            Expanded(
+              child: Center(
+                child: Text(
+                  element.text,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: isDarkMode ? Colors.white : Color(0xFF1A1A2E),
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                    letterSpacing: 0.2,
+                    height: 1.3,
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
       );
 
@@ -817,12 +891,12 @@ class _KramElementWidget extends StatelessWidget {
             onElementLongPress(element.id, details.globalPosition),
         onPanStart: (details) => onElementPanStart(element.id),
         onPanUpdate: (details) => onElementPanUpdate(details.delta),
-        onPanEnd: (details) => onElementPanEnd(), 
+        onPanEnd: (details) => onElementPanEnd(),
         child: Stack(
           clipBehavior: Clip.none,
           children: [
             node,
-            // --- SELECTION BORDER ---
+            // --- SELECTION GLOW BORDER ---
             if (isSelected)
               Positioned(
                 left: -3,
@@ -833,13 +907,36 @@ class _KramElementWidget extends StatelessWidget {
                   decoration: ShapeDecoration(
                     shape: _getShape(
                       element.type,
-                      color, 
-                      overrideSide:
-                          BorderSide(color: Color(0xFF8D5F8C), width: 3),
+                      color,
+                      overrideSide: BorderSide(
+                        color: Color(0xFF8D5F8C),
+                        width: 3,
+                      ),
                     ),
                   ),
                 ),
               ),
+            // --- NODE TYPE BADGE ---
+            Positioned(
+              right: 8,
+              top: -8,
+              child: Container(
+                padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: color,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  element.type.toUpperCase(),
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 8,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+              ),
+            ),
             // --- CONNECTION ANCHORS ---
             _ConnectionAnchor(
               side: AnchorSide.top,
@@ -891,8 +988,11 @@ class _KramElementWidget extends StatelessWidget {
     });
   }
 
-  ShapeBorder _getShape(String type, Color borderColor,
-      {BorderSide? overrideSide}) {
+  ShapeBorder _getShape(
+    String type,
+    Color borderColor, {
+    BorderSide? overrideSide,
+  }) {
     final border = overrideSide ?? BorderSide(color: borderColor, width: 2);
     switch (type) {
       case 'start':
@@ -903,7 +1003,7 @@ class _KramElementWidget extends StatelessWidget {
         );
       case 'decision':
         return BeveledRectangleBorder(
-          borderRadius: BorderRadius.circular(10), 
+          borderRadius: BorderRadius.circular(10),
           side: border,
         );
       case 'process':
@@ -918,14 +1018,29 @@ class _KramElementWidget extends StatelessWidget {
   Color _getColor(String type) {
     switch (type) {
       case 'start':
-        return Colors.green.shade400;
+        return Color(0xFF22C55E); // Vibrant green
       case 'end':
-        return Colors.red.shade400;
+        return Color(0xFFEF4444); // Bold red
       case 'decision':
-        return Color(0xFFF4991A);
+        return Color(0xFFF59E0B); // Amber
       case 'process':
       default:
-        return Color(0xFF8D5F8C);
+        return Color(0xFF8B5CF6); // Purple (matches accent)
+    }
+  }
+
+  /// Subtle background fill per node type for eraser.io-style look
+  Color _getBackgroundColor(String type) {
+    switch (type) {
+      case 'start':
+        return Color(0xFFECFDF5); // Light green tint
+      case 'end':
+        return Color(0xFFFEF2F2); // Light red tint
+      case 'decision':
+        return Color(0xFFFFFBEB); // Light amber tint
+      case 'process':
+      default:
+        return Color(0xFFF5F3FF); // Light purple tint
     }
   }
 }
@@ -1022,7 +1137,7 @@ class _ConnectionAnchor extends StatelessWidget {
     if (angle > -pi / 4 && angle <= pi / 4) return AnchorSide.right;
     if (angle > pi / 4 && angle <= 3 * pi / 4) return AnchorSide.bottom;
     if (angle > 3 * pi / 4 || angle <= -3 * pi / 4) return AnchorSide.left;
-    return AnchorSide.top; 
+    return AnchorSide.top;
   }
 }
 
@@ -1065,7 +1180,11 @@ class _EdgePainter extends CustomPainter {
 
   // --- Get control points for a Bézier curve ---
   Path _getBezierPath(
-      Offset from, Offset to, AnchorSide fromAnchor, AnchorSide toAnchor) {
+    Offset from,
+    Offset to,
+    AnchorSide fromAnchor,
+    AnchorSide toAnchor,
+  ) {
     final Path path = Path();
     path.moveTo(from.dx, from.dy);
 
@@ -1117,13 +1236,14 @@ class _EdgePainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = isDarkMode ? Colors.white38 : Colors.black38
-      ..strokeWidth = 2.0
-      ..style = PaintingStyle.stroke;
+      ..color = isDarkMode ? Color(0xFF9CA3AF) : Color(0xFF6B7280)
+      ..strokeWidth = 2.5
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
 
     final arrowPaint = Paint()
-      ..color = isDarkMode ? Colors.white38 : Colors.black38
-      ..strokeWidth = 2.0
+      ..color = isDarkMode ? Color(0xFF9CA3AF) : Color(0xFF6B7280)
+      ..strokeWidth = 2.5
       ..style = PaintingStyle.fill;
 
     // Create a map for quick element lookup
@@ -1138,8 +1258,12 @@ class _EdgePainter extends CustomPainter {
         final fromPoint = _getAnchorOffset(from, edge.fromAnchor);
         final toPoint = _getAnchorOffset(to, edge.toAnchor);
 
-        final path =
-            _getBezierPath(fromPoint, toPoint, edge.fromAnchor, edge.toAnchor);
+        final path = _getBezierPath(
+          fromPoint,
+          toPoint,
+          edge.fromAnchor,
+          edge.toAnchor,
+        );
         canvas.drawPath(path, paint);
 
         _drawArrowForPath(canvas, path, arrowPaint);
@@ -1170,7 +1294,11 @@ class _EdgePainter extends CustomPainter {
         }
 
         final path = _getBezierPath(
-            fromPoint, connectLiveOffset!, connectFromAnchor!, pseudoToAnchor);
+          fromPoint,
+          connectLiveOffset!,
+          connectFromAnchor!,
+          pseudoToAnchor,
+        );
         canvas.drawPath(path, livePaint);
       }
     }
@@ -1184,8 +1312,9 @@ class _EdgePainter extends CustomPainter {
 
     // Get position 5 units *before* the end so tip lands on anchor
     const arrowLength = 10.0;
-    final tangent =
-        pathMetrics.getTangentForOffset(pathLength - (arrowLength * 0.5));
+    final tangent = pathMetrics.getTangentForOffset(
+      pathLength - (arrowLength * 0.5),
+    );
     if (tangent == null) return;
 
     final to = tangent.position;
@@ -1224,7 +1353,7 @@ class _CursorWidget extends StatelessWidget {
   final String name;
   final String email;
   const _CursorWidget({Key? key, required this.name, required this.email})
-      : super(key: key);
+    : super(key: key);
 
   @override
   Widget build(BuildContext context) {
@@ -1244,9 +1373,10 @@ class _CursorWidget extends StatelessWidget {
           Text(
             name,
             style: TextStyle(
-                color: Colors.white,
-                fontSize: 12,
-                fontWeight: FontWeight.bold),
+              color: Colors.white,
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+            ),
           ),
         ],
       ),
@@ -1269,24 +1399,33 @@ class _TopLeftControls extends StatelessWidget {
     final panelBg = isDarkMode ? Color(0xFF1E1E1E) : Colors.white;
     final panelBorder = isDarkMode ? Color(0xFF333333) : Color(0xFFE0E0E0);
     final titleColor = isDarkMode ? Colors.white : Colors.black;
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isMobile = screenWidth < 600;
+    // On mobile, constrain title so it doesn't overflow
+    final maxTitleWidth = isMobile ? screenWidth * 0.45 : 220.0;
 
     return Positioned(
-      top: 20,
-      left: 20,
+      top: 12,
+      left: 12,
       child: Container(
-        padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        padding: EdgeInsets.symmetric(
+          horizontal: isMobile ? 8 : 12,
+          vertical: isMobile ? 6 : 8,
+        ),
         decoration: BoxDecoration(
           color: panelBg,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: panelBorder),
           boxShadow: [
             BoxShadow(
-                color: Colors.black.withOpacity(0.2),
-                blurRadius: 10,
-                offset: Offset(0, 4))
+              color: Colors.black.withOpacity(0.2),
+              blurRadius: 10,
+              offset: Offset(0, 4),
+            ),
           ],
         ),
         child: Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
             InkWell(
               onTap: () => Get.offAllNamed('/home'),
@@ -1295,21 +1434,36 @@ class _TopLeftControls extends StatelessWidget {
                 padding: const EdgeInsets.all(4.0),
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(6),
-                  child: Image.asset('assets/images/icon.png',
-                      height: 28, width: 28, fit: BoxFit.cover),
+                  child: Image.asset(
+                    'assets/images/icon.png',
+                    height: isMobile ? 24 : 28,
+                    width: isMobile ? 24 : 28,
+                    fit: BoxFit.cover,
+                  ),
                 ),
               ),
             ),
             VerticalDivider(
-                color: panelBorder, width: 24, indent: 4, endIndent: 4),
-            Obx(() => Text(
+              color: panelBorder,
+              width: isMobile ? 16 : 24,
+              indent: 4,
+              endIndent: 4,
+            ),
+            ConstrainedBox(
+              constraints: BoxConstraints(maxWidth: maxTitleWidth),
+              child: Obx(
+                () => Text(
                   ctrl.roomTitle.value,
                   style: TextStyle(
-                      color: titleColor,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w500),
+                    color: titleColor,
+                    fontSize: isMobile ? 13 : 16,
+                    fontWeight: FontWeight.w500,
+                  ),
                   overflow: TextOverflow.ellipsis,
-                )),
+                  maxLines: 1,
+                ),
+              ),
+            ),
           ],
         ),
       ),
@@ -1325,7 +1479,7 @@ class _KramToolbar extends StatelessWidget {
   final bool isFullscreen;
   final VoidCallback onToggleTheme;
   final VoidCallback onToggleFullscreen;
-  final VoidCallback onExport; 
+  final VoidCallback onExport;
 
   const _KramToolbar({
     required this.currentTool,
@@ -1335,7 +1489,7 @@ class _KramToolbar extends StatelessWidget {
     required this.isFullscreen,
     required this.onToggleTheme,
     required this.onToggleFullscreen,
-    required this.onExport, 
+    required this.onExport,
   });
 
   @override
@@ -1343,7 +1497,175 @@ class _KramToolbar extends StatelessWidget {
     final panelBg = isDarkMode ? Color(0xFF1E1E1E) : Colors.white;
     final panelBorder = isDarkMode ? Color(0xFF333333) : Color(0xFFE0E0E0);
     final iconColor = isDarkMode ? Colors.white70 : Colors.black54;
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isMobile = screenWidth < 600;
 
+    final boxDecoration = BoxDecoration(
+      color: panelBg,
+      borderRadius: BorderRadius.circular(14),
+      border: Border.all(color: panelBorder),
+      boxShadow: [
+        BoxShadow(
+          color: Colors.black.withOpacity(0.18),
+          blurRadius: 12,
+          offset: Offset(0, 4),
+        ),
+      ],
+    );
+
+    if (isMobile) {
+      // ── MOBILE LAYOUT: two compact rows ──────────────────────────────
+      return Positioned(
+        bottom: 12,
+        left: 12,
+        right: 12,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Row 1: Action buttons (undo/redo/theme/fullscreen/export + zoom)
+            Container(
+              padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: boxDecoration,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  // Undo / Redo
+                  Row(
+                    children: [
+                      Obx(
+                        () => _ToolButton(
+                          icon: Icons.undo,
+                          label: 'Undo',
+                          isSelected: false,
+                          onTap: ctrl.canUndo.value ? () => ctrl.undo() : null,
+                          isDarkMode: isDarkMode,
+                          compact: true,
+                        ),
+                      ),
+                      Obx(
+                        () => _ToolButton(
+                          icon: Icons.redo,
+                          label: 'Redo',
+                          isSelected: false,
+                          onTap: ctrl.canRedo.value ? () => ctrl.redo() : null,
+                          isDarkMode: isDarkMode,
+                          compact: true,
+                        ),
+                      ),
+                    ],
+                  ),
+                  // Zoom indicator
+                  Obx(
+                    () => Text(
+                      '${(ctrl.currentScale.value * 100).toInt()}%',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: iconColor,
+                      ),
+                    ),
+                  ),
+                  // Theme / Fullscreen / Export
+                  Row(
+                    children: [
+                      _ToolButton(
+                        icon: isDarkMode
+                            ? Icons.light_mode_outlined
+                            : Icons.dark_mode_outlined,
+                        label: isDarkMode ? 'Light' : 'Dark',
+                        isSelected: false,
+                        onTap: onToggleTheme,
+                        isDarkMode: isDarkMode,
+                        compact: true,
+                      ),
+                      _ToolButton(
+                        icon: isFullscreen
+                            ? Icons.fullscreen_exit_outlined
+                            : Icons.fullscreen_outlined,
+                        label: isFullscreen ? 'Exit FS' : 'Fullscreen',
+                        isSelected: false,
+                        onTap: onToggleFullscreen,
+                        isDarkMode: isDarkMode,
+                        compact: true,
+                      ),
+                      _ToolButton(
+                        icon: Icons.download_outlined,
+                        label: 'Export',
+                        isSelected: false,
+                        onTap: onExport,
+                        isDarkMode: isDarkMode,
+                        compact: true,
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            SizedBox(height: 6),
+            // Row 2: Drawing tools
+            Container(
+              padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: boxDecoration,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  _ToolButton(
+                    icon: Icons.pan_tool_outlined,
+                    label: 'Move',
+                    isSelected: currentTool == Tool.move,
+                    onTap: () => onToolSelected(Tool.move),
+                    isDarkMode: isDarkMode,
+                    compact: true,
+                  ),
+                  _ToolButton(
+                    icon: Icons.rectangle_outlined,
+                    label: 'Process',
+                    isSelected: currentTool == Tool.addProcess,
+                    onTap: () => onToolSelected(Tool.addProcess),
+                    isDarkMode: isDarkMode,
+                    compact: true,
+                  ),
+                  _ToolButton(
+                    icon: Icons.diamond_outlined,
+                    label: 'Decision',
+                    isSelected: currentTool == Tool.addDecision,
+                    onTap: () => onToolSelected(Tool.addDecision),
+                    isDarkMode: isDarkMode,
+                    compact: true,
+                  ),
+                  _ToolButton(
+                    icon: Icons.circle_outlined,
+                    label: 'Start/End',
+                    isSelected: currentTool == Tool.addStartEnd,
+                    onTap: () => onToolSelected(Tool.addStartEnd),
+                    isDarkMode: isDarkMode,
+                    compact: true,
+                  ),
+                  _ToolButton(
+                    icon: Icons.note_add_outlined,
+                    label: 'Note',
+                    isSelected: currentTool == Tool.addNote,
+                    onTap: () => onToolSelected(Tool.addNote),
+                    isDarkMode: isDarkMode,
+                    compact: true,
+                  ),
+                  _ToolButton(
+                    icon: Icons.share_outlined,
+                    label: 'Connect',
+                    isSelected: currentTool == Tool.connect,
+                    onTap: () => onToolSelected(Tool.connect),
+                    isDarkMode: isDarkMode,
+                    compact: true,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // ── DESKTOP / TABLET LAYOUT: single row ──────────────────────────
     return Positioned(
       bottom: 20,
       left: 0,
@@ -1351,17 +1673,7 @@ class _KramToolbar extends StatelessWidget {
       child: Center(
         child: Container(
           padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          decoration: BoxDecoration(
-            color: panelBg,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: panelBorder),
-            boxShadow: [
-              BoxShadow(
-                  color: Colors.black.withOpacity(0.2),
-                  blurRadius: 10,
-                  offset: Offset(0, 4))
-            ],
-          ),
+          decoration: boxDecoration,
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -1394,29 +1706,49 @@ class _KramToolbar extends StatelessWidget {
                 isDarkMode: isDarkMode,
               ),
               _ToolButton(
-                  icon: Icons.share_outlined,
-                  label: 'Connect',
-                  isSelected: currentTool == Tool.connect,
-                  onTap: () => onToolSelected(Tool.connect),
-                  isDarkMode: isDarkMode),
+                icon: Icons.note_add_outlined,
+                label: 'Note',
+                isSelected: currentTool == Tool.addNote,
+                onTap: () => onToolSelected(Tool.addNote),
+                isDarkMode: isDarkMode,
+              ),
+              _ToolButton(
+                icon: Icons.share_outlined,
+                label: 'Connect',
+                isSelected: currentTool == Tool.connect,
+                onTap: () => onToolSelected(Tool.connect),
+                isDarkMode: isDarkMode,
+              ),
               VerticalDivider(
-                  color: panelBorder, width: 24, indent: 8, endIndent: 8),
-              Obx(() => _ToolButton(
-                    icon: Icons.undo,
-                    label: 'Undo',
-                    isSelected: false,
-                    onTap: ctrl.canUndo.value ? () => ctrl.undo() : null,
-                    isDarkMode: isDarkMode,
-                  )),
-              Obx(() => _ToolButton(
-                    icon: Icons.redo,
-                    label: 'Redo',
-                    isSelected: false,
-                    onTap: ctrl.canRedo.value ? () => ctrl.redo() : null,
-                    isDarkMode: isDarkMode,
-                  )),
+                color: panelBorder,
+                width: 24,
+                indent: 8,
+                endIndent: 8,
+              ),
+              Obx(
+                () => _ToolButton(
+                  icon: Icons.undo,
+                  label: 'Undo',
+                  isSelected: false,
+                  onTap: ctrl.canUndo.value ? () => ctrl.undo() : null,
+                  isDarkMode: isDarkMode,
+                ),
+              ),
+              Obx(
+                () => _ToolButton(
+                  icon: Icons.redo,
+                  label: 'Redo',
+                  isSelected: false,
+                  onTap: ctrl.canRedo.value ? () => ctrl.redo() : null,
+                  isDarkMode: isDarkMode,
+                ),
+              ),
               VerticalDivider(
-                  color: panelBorder, width: 24, indent: 8, endIndent: 8),
+                color: panelBorder,
+                width: 24,
+                indent: 8,
+                endIndent: 8,
+              ),
               _ToolButton(
                 icon: isDarkMode
                     ? Icons.light_mode_outlined
@@ -1436,22 +1768,29 @@ class _KramToolbar extends StatelessWidget {
                 isDarkMode: isDarkMode,
               ),
               _ToolButton(
-                icon: Icons.download_outlined, 
+                icon: Icons.download_outlined,
                 label: 'Export Image',
                 isSelected: false,
                 onTap: onExport,
                 isDarkMode: isDarkMode,
               ),
               VerticalDivider(
-                  color: panelBorder, width: 24, indent: 8, endIndent: 8),
-              Obx(() => Text(
-                    '${(ctrl.currentScale.value * 100).toInt()}%',
-                    style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                        color: iconColor,
-                        letterSpacing: 0.5),
-                  )),
+                color: panelBorder,
+                width: 24,
+                indent: 8,
+                endIndent: 8,
+              ),
+              Obx(
+                () => Text(
+                  '${(ctrl.currentScale.value * 100).toInt()}%',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                    color: iconColor,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+              ),
             ],
           ),
         ),
@@ -1466,6 +1805,7 @@ class _ToolButton extends StatelessWidget {
   final bool isSelected;
   final bool isDarkMode;
   final VoidCallback? onTap;
+  final bool compact;
 
   const _ToolButton({
     required this.icon,
@@ -1473,6 +1813,7 @@ class _ToolButton extends StatelessWidget {
     required this.isSelected,
     required this.isDarkMode,
     this.onTap,
+    this.compact = false,
   });
 
   @override
@@ -1483,6 +1824,8 @@ class _ToolButton extends StatelessWidget {
     final selectedIcon = isDarkMode ? Colors.white : Color(0xFF8D5F8C);
     final unselectedIcon = isDarkMode ? Colors.white70 : Colors.black54;
     final disabledIcon = isDarkMode ? Colors.white24 : Colors.black12;
+    final iconSize = compact ? 18.0 : 20.0;
+    final padding = compact ? 8.0 : 10.0;
 
     return Tooltip(
       message: label,
@@ -1493,10 +1836,10 @@ class _ToolButton extends StatelessWidget {
           onTap: onTap,
           borderRadius: BorderRadius.circular(8),
           child: Padding(
-            padding: const EdgeInsets.all(10.0),
+            padding: EdgeInsets.all(padding),
             child: Icon(
               icon,
-              size: 20,
+              size: iconSize,
               color: onTap == null
                   ? disabledIcon
                   : (isSelected ? selectedIcon : unselectedIcon),
@@ -1513,24 +1856,32 @@ class _NotificationWidget extends StatelessWidget {
   final bool isNotificationError;
   final bool isDarkMode;
 
-  const _NotificationWidget(
-      {this.notificationMessage,
-      required this.isNotificationError,
-      required this.isDarkMode});
+  const _NotificationWidget({
+    this.notificationMessage,
+    required this.isNotificationError,
+    required this.isDarkMode,
+  });
 
   @override
   Widget build(BuildContext context) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isMobile = screenWidth < 600;
+    // On mobile the toolbar is ~120px tall (two rows + gap + bottom padding)
+    // On desktop it's ~70px
+    final bottomOffset = isMobile ? 140.0 : 100.0;
+
     return Positioned(
-      bottom: 100, // Above the toolbar
+      bottom: bottomOffset,
       left: 0,
       right: 0,
       child: AnimatedSwitcher(
         duration: Duration(milliseconds: 300),
         transitionBuilder: (child, animation) {
           return SlideTransition(
-            position:
-                Tween<Offset>(begin: Offset(0.0, 1.0), end: Offset(0.0, 0.0))
-                    .animate(animation),
+            position: Tween<Offset>(
+              begin: Offset(0.0, 1.0),
+              end: Offset(0.0, 0.0),
+            ).animate(animation),
             child: child,
           );
         },
@@ -1549,14 +1900,15 @@ class _NotificationWidget extends StatelessWidget {
                       color: isNotificationError
                           ? Colors.red.shade300
                           : (isDarkMode
-                              ? Color(0xFF333333)
-                              : Color(0xFFE0E0E0)),
+                                ? Color(0xFF333333)
+                                : Color(0xFFE0E0E0)),
                     ),
                     boxShadow: [
                       BoxShadow(
-                          color: Colors.black.withOpacity(0.2),
-                          blurRadius: 10,
-                          offset: Offset(0, 4))
+                        color: Colors.black.withOpacity(0.2),
+                        blurRadius: 10,
+                        offset: Offset(0, 4),
+                      ),
                     ],
                   ),
                   child: Text(
@@ -1573,6 +1925,161 @@ class _NotificationWidget extends StatelessWidget {
       ),
     );
   }
+}
+
+// -------------------------------------------------------------------
+// --- MINIMAP WIDGET ---
+// -------------------------------------------------------------------
+class _Minimap extends StatelessWidget {
+  final KramController ctrl;
+  final bool isDarkMode;
+
+  const _Minimap({required this.ctrl, required this.isDarkMode});
+
+  @override
+  Widget build(BuildContext context) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isMobile = screenWidth < 600;
+    // On mobile: sit above the two-row toolbar
+    final bottomOffset = isMobile ? 150.0 : 16.0;
+    final mapWidth = isMobile ? 110.0 : 140.0;
+    final mapHeight = isMobile ? 78.0 : 100.0;
+
+    return Positioned(
+      right: 16,
+      bottom: bottomOffset,
+      child: Obx(() {
+        final elements = ctrl.elements;
+        if (elements.isEmpty) return SizedBox.shrink();
+
+        // Calculate bounds
+        double minX = elements.map((e) => e.x).reduce(min);
+        double minY = elements.map((e) => e.y).reduce(min);
+        double maxX = elements.map((e) => e.x + e.width).reduce(max);
+        double maxY = elements.map((e) => e.y + e.height).reduce(max);
+
+        final rangeX = maxX - minX;
+        final rangeY = maxY - minY;
+        if (rangeX <= 0 || rangeY <= 0) return SizedBox.shrink();
+
+        final scaleX = mapWidth / (rangeX + 100);
+        final scaleY = mapHeight / (rangeY + 100);
+        final scale = min(scaleX, scaleY);
+
+        return Container(
+          width: mapWidth,
+          height: mapHeight,
+          decoration: BoxDecoration(
+            color: isDarkMode
+                ? Color(0xFF1A1A2E).withOpacity(0.85)
+                : Colors.white.withOpacity(0.9),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: isDarkMode ? Color(0xFF2D2D3F) : Color(0xFFE0E0E0),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.15),
+                blurRadius: 8,
+                offset: Offset(0, 2),
+              ),
+            ],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(10),
+            child: CustomPaint(
+              painter: _MinimapPainter(
+                elements: elements,
+                edges: ctrl.edges,
+                minX: minX - 50,
+                minY: minY - 50,
+                scale: scale,
+                isDarkMode: isDarkMode,
+              ),
+            ),
+          ),
+        );
+      }),
+    );
+  }
+}
+
+class _MinimapPainter extends CustomPainter {
+  final List<KramElementModel> elements;
+  final List<KramEdgeModel> edges;
+  final double minX, minY, scale;
+  final bool isDarkMode;
+
+  _MinimapPainter({
+    required this.elements,
+    required this.edges,
+    required this.minX,
+    required this.minY,
+    required this.scale,
+    required this.isDarkMode,
+  });
+
+  Color _nodeColor(String type) {
+    switch (type) {
+      case 'start':
+        return Color(0xFF22C55E);
+      case 'end':
+        return Color(0xFFEF4444);
+      case 'decision':
+        return Color(0xFFF59E0B);
+      default:
+        return Color(0xFF8B5CF6);
+    }
+  }
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final elementMap = {for (var el in elements) el.id: el};
+
+    // Draw edges
+    final edgePaint = Paint()
+      ..color = isDarkMode ? Color(0xFF4B5563) : Color(0xFFD1D5DB)
+      ..strokeWidth = 1
+      ..style = PaintingStyle.stroke;
+
+    for (var edge in edges) {
+      final from = elementMap[edge.fromId];
+      final to = elementMap[edge.toId];
+      if (from != null && to != null) {
+        canvas.drawLine(
+          Offset(
+            (from.x + from.width / 2 - minX) * scale,
+            (from.y + from.height / 2 - minY) * scale,
+          ),
+          Offset(
+            (to.x + to.width / 2 - minX) * scale,
+            (to.y + to.height / 2 - minY) * scale,
+          ),
+          edgePaint,
+        );
+      }
+    }
+
+    // Draw nodes
+    for (var el in elements) {
+      final rect = Rect.fromLTWH(
+        (el.x - minX) * scale,
+        (el.y - minY) * scale,
+        el.width * scale,
+        el.height * scale,
+      );
+      final nodePaint = Paint()
+        ..color = _nodeColor(el.type)
+        ..style = PaintingStyle.fill;
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(rect, Radius.circular(2)),
+        nodePaint,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _MinimapPainter oldDelegate) => true;
 }
 
 class GridBackgroundPainter extends CustomPainter {
@@ -1600,4 +2107,136 @@ class GridBackgroundPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant GridBackgroundPainter oldDelegate) =>
       oldDelegate.isDarkMode != isDarkMode;
+}
+
+// -------------------------------------------------------------------
+// --- KRAM NOTE WIDGET ---
+// -------------------------------------------------------------------
+class _KramNoteWidget extends StatelessWidget {
+  final KramNoteModel note;
+  final KramController ctrl;
+  final bool isDarkMode;
+
+  const _KramNoteWidget({
+    Key? key,
+    required this.note,
+    required this.ctrl,
+    required this.isDarkMode,
+  }) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    // Parse color string (e.g., #FFF9C4)
+    Color noteColor = _parseColor(note.color);
+
+    return Positioned(
+      left: note.x,
+      top: note.y,
+      child: GestureDetector(
+        onPanUpdate: (details) {
+          // Simple drag for notes (no multi-select for now)
+          ctrl.updateNotePosition(
+            note.id,
+            Offset(
+              note.x + details.delta.dx / ctrl.currentScale.value,
+              note.y + details.delta.dy / ctrl.currentScale.value,
+            ),
+          );
+        },
+        onDoubleTap: () {
+          // Edit note text
+          _showEditNoteDialog(context, note);
+        },
+        onLongPress: () {
+          // Delete note
+          ctrl.deleteNote(note.id);
+        },
+        child: Container(
+          width: note.width,
+          height: note.height,
+          padding: EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: noteColor,
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.2),
+                blurRadius: 4,
+                offset: Offset(2, 2),
+              ),
+            ],
+            borderRadius: BorderRadius.only(bottomRight: Radius.circular(20)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Text(
+                  note.text,
+                  style: TextStyle(
+                    color: Colors.black87,
+                    fontSize: 16,
+                    fontFamily:
+                        "IndieFlower", // Fallback to default if font not found
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Color _parseColor(String hex) {
+    try {
+      return Color(int.parse(hex.substring(1), radix: 16) + 0xFF000000);
+    } catch (e) {
+      return Color(0xFFFFF9C4);
+    }
+  }
+
+  void _showEditNoteDialog(BuildContext context, KramNoteModel note) {
+    final txt = TextEditingController(text: note.text);
+    showDialog(
+      context: context,
+      builder: (c) => AlertDialog(
+        backgroundColor: isDarkMode ? Color(0xFF1A1A1A) : Colors.white,
+        title: Text(
+          'Edit Note',
+          style: TextStyle(color: isDarkMode ? Colors.white : Colors.black),
+        ),
+        content: TextField(
+          controller: txt,
+          maxLines: 5,
+          style: TextStyle(color: isDarkMode ? Colors.white : Colors.black),
+          decoration: InputDecoration(
+            hintText: 'Enter note...',
+            hintStyle: TextStyle(
+              color: isDarkMode ? Colors.white38 : Colors.black38,
+            ),
+          ),
+          autofocus: true,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Get.back(),
+            child: Text(
+              'Cancel',
+              style: TextStyle(
+                color: isDarkMode ? Colors.white54 : Colors.black54,
+              ),
+            ),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Color(0xFF8D5F8C)),
+            onPressed: () {
+              ctrl.updateNoteText(note.id, txt.text);
+              Get.back();
+            },
+            child: Text('Update', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
 }

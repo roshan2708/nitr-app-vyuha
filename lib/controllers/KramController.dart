@@ -28,21 +28,26 @@ class KramController extends GetxController {
   final RxList<KramElementModel> elements = <KramElementModel>[].obs;
   final RxList<KramEdgeModel> edges = <KramEdgeModel>[].obs;
 
+  final RxList<KramNoteModel> notes = <KramNoteModel>[].obs;
+  final RxList<KramCommentModel> comments = <KramCommentModel>[].obs;
+
   final RxString roomTitle = 'Untitled Kram'.obs;
   final RxString passkey = ''.obs;
   final RxBool isOwner = false.obs;
   final RxList<CollaboratorModel> collaborators = <CollaboratorModel>[].obs;
   final RxList<CollaboratorModel> bannedUsers = <CollaboratorModel>[].obs;
 
-  // REMOVED: final gemini = GeminiService(); 
+  // REMOVED: final gemini = GeminiService();
   // We instantiate this locally to prevent history accumulation.
-  
+
   final authController = Get.find<AuthController>();
   late final String uid;
   late final DocumentReference roomRef;
   late final CollectionReference elementsRef;
   late final CollectionReference edgesRef;
   late final CollectionReference presenceRef;
+  late final CollectionReference notesRef;
+  late final CollectionReference commentsRef;
 
   // --- VYUHA AI LIMITS ---
   final RxInt aiUsesRemaining = 15.obs;
@@ -81,10 +86,14 @@ class KramController extends GetxController {
     elementsRef = roomRef.collection('elements');
     edgesRef = roomRef.collection('edges');
     presenceRef = roomRef.collection('presence');
+    notesRef = roomRef.collection('notes');
+    commentsRef = roomRef.collection('comments');
 
     _listenToRoomInfo();
     _listenToElements();
     _listenToEdges();
+    _listenToNotes();
+    _listenToComments();
     _listenToPresence();
     _startPresenceTimers();
   }
@@ -117,11 +126,11 @@ class KramController extends GetxController {
       // Check if AI generation is requested via Firestore flags
       if (data.containsKey('generationContext') &&
           data.containsKey('generationTopic')) {
-        // This is called inside a listener, so we rely on _generateKramFromAI's 
-        // internal guard to prevent double-execution.
+        final flowchartType = data['flowchartType'] as String? ?? 'custom';
         _generateKramFromAI(
           data['generationTopic'],
           data['generationContext'],
+          flowchartType: flowchartType,
         );
       }
 
@@ -150,10 +159,13 @@ class KramController extends GetxController {
 
   void _listenToElements() {
     elementsRef.snapshots().listen((snap) {
-      elements.assignAll(snap.docs
-          .map((d) =>
-              KramElementModel.fromMap(d.data() as Map<String, dynamic>))
-          .toList());
+      elements.assignAll(
+        snap.docs
+            .map(
+              (d) => KramElementModel.fromMap(d.data() as Map<String, dynamic>),
+            )
+            .toList(),
+      );
       final allElementIds = elements.map((e) => e.id).toSet();
       selectedElementIds.removeWhere((id) => !allElementIds.contains(id));
     });
@@ -161,9 +173,33 @@ class KramController extends GetxController {
 
   void _listenToEdges() {
     edgesRef.snapshots().listen((snap) {
-      edges.assignAll(snap.docs
-          .map((d) => KramEdgeModel.fromMap(d.data() as Map<String, dynamic>))
-          .toList());
+      edges.assignAll(
+        snap.docs
+            .map((d) => KramEdgeModel.fromMap(d.data() as Map<String, dynamic>))
+            .toList(),
+      );
+    });
+  }
+
+  void _listenToNotes() {
+    notesRef.snapshots().listen((snap) {
+      notes.assignAll(
+        snap.docs
+            .map((d) => KramNoteModel.fromMap(d.data() as Map<String, dynamic>))
+            .toList(),
+      );
+    });
+  }
+
+  void _listenToComments() {
+    commentsRef.orderBy('timestamp').snapshots().listen((snap) {
+      comments.assignAll(
+        snap.docs
+            .map(
+              (d) => KramCommentModel.fromMap(d.data() as Map<String, dynamic>),
+            )
+            .toList(),
+      );
     });
   }
 
@@ -193,8 +229,9 @@ class KramController extends GetxController {
     });
 
     _staleCursorTimer = Timer.periodic(Duration(seconds: 15), (timer) {
-      activeCursors
-          .removeWhere((key, value) => _isCursorStale(value['timestamp']));
+      activeCursors.removeWhere(
+        (key, value) => _isCursorStale(value['timestamp']),
+      );
     });
   }
 
@@ -282,8 +319,9 @@ class KramController extends GetxController {
     _multiMoveOriginalPositions = {
       for (final id in selectedElementIds)
         id: Offset(
-            elements.firstWhere((el) => el.id == id).x,
-            elements.firstWhere((el) => el.id == id).y),
+          elements.firstWhere((el) => el.id == id).x,
+          elements.firstWhere((el) => el.id == id).y,
+        ),
     };
     _currentMultiMoveDelta = Offset.zero;
   }
@@ -335,38 +373,44 @@ class KramController extends GetxController {
     } else if (raw.startsWith('```')) {
       raw = raw.replaceFirst('```', '');
     }
-    
+
     // Using substring instead of replaceLast for compatibility
     if (raw.endsWith('```')) {
       raw = raw.substring(0, raw.length - 3);
     }
-    
+
     return raw.trim();
   }
 
-  Future<void> _generateKramFromAI(String topic, String context) async {
+  Future<void> _generateKramFromAI(
+    String topic,
+    String context, {
+    String flowchartType = 'custom',
+  }) async {
     // 1. Guard against concurrent executions (e.g. from rapid snapshot updates)
-    if (isGeneratingAI.value) return; 
-    
+    if (isGeneratingAI.value) return;
+
     isGeneratingAI.value = true;
     try {
       if (aiUsesRemaining.value <= 0) {
         String resetMsg = 'Resets soon.';
         if (aiUseResetTime.value != null) {
-          final hours =
-              aiUseResetTime.value!.difference(DateTime.now()).inHours;
+          final hours = aiUseResetTime.value!
+              .difference(DateTime.now())
+              .inHours;
           resetMsg = 'Resets in ~${hours}h.';
         }
         throw Exception('AI limit reached. $resetMsg');
       }
 
       // 2. Instantiate locally to ensure stateless request
-      final gemini = GeminiService(); 
+      final gemini = GeminiService();
 
       // 3. Add timeout to prevent hanging
-      String jsonString = await gemini.generateKramFlowchart(topic, context)
-          .timeout(const Duration(seconds: 30));
-      
+      String jsonString = await gemini
+          .generateKramFlowchart(topic, context, flowchartType: flowchartType)
+          .timeout(const Duration(seconds: 45));
+
       // Clean JSON
       jsonString = _cleanJsonString(jsonString);
 
@@ -408,8 +452,8 @@ class KramController extends GetxController {
           {
             "id": "fallback_1",
             "text": topic.isNotEmpty ? topic : "New Concept",
-            "type": "process"
-          }
+            "type": "process",
+          },
         ];
       }
 
@@ -418,52 +462,239 @@ class KramController extends GetxController {
       final List<KramElementModel> newElements = [];
       final List<KramEdgeModel> newEdges = [];
 
-      double currentX = 100.0;
-      double currentY = 100.0;
-      final double nodeWidth = 200.0;
-      final double nodeHeight = 80.0;
-      final double paddingX = 50.0;
-      final double paddingY = 50.0;
-      int nodesInRow = 0;
-      final int maxNodesPerRow = 3;
+      // --- Production-Grade Hierarchical Layout (Reingold-Tilford style) ---
+      // Step 1: Build graph structures
+      final Map<String, List<String>> childrenMap = {};
+      final Map<String, List<String>> parentsMap = {};
+      final Set<String> allIds = {};
+      final Map<String, String> nodeIdMap = {}; // old AI id -> new uuid
 
       for (var node in nodes) {
-        final id = node['id']?.toString() ?? uuid.v4();
+        final oldId = node['id']?.toString() ?? uuid.v4();
+        final newId = uuid.v4();
+        nodeIdMap[oldId] = newId;
+        allIds.add(oldId);
+        childrenMap[oldId] = [];
+        parentsMap[oldId] = [];
+      }
+
+      // Deduplicate edges (AI sometimes returns duplicate edges)
+      final Set<String> seenEdges = {};
+      final List<dynamic> validEdges = [];
+      for (var edge in edges) {
+        final fromOld = edge['fromId']?.toString() ?? '';
+        final toOld = edge['toId']?.toString() ?? '';
+        final edgeKey = '$fromOld->$toOld';
+        if (fromOld.isNotEmpty &&
+            toOld.isNotEmpty &&
+            allIds.contains(fromOld) &&
+            allIds.contains(toOld) &&
+            fromOld != toOld &&
+            !seenEdges.contains(edgeKey)) {
+          seenEdges.add(edgeKey);
+          validEdges.add(edge);
+          childrenMap[fromOld]?.add(toOld);
+          parentsMap[toOld]?.add(fromOld);
+        }
+      }
+
+      // Step 2: Find root nodes (no parents)
+      List<String> roots = allIds
+          .where((id) => (parentsMap[id]?.isEmpty ?? true))
+          .toList();
+
+      // Prefer nodes explicitly typed as 'start'
+      final startTyped = nodes
+          .where((n) => n['type'] == 'start')
+          .map((n) => n['id']?.toString() ?? '')
+          .where((id) => id.isNotEmpty && allIds.contains(id))
+          .toList();
+      if (startTyped.isNotEmpty) {
+        // Put start nodes first
+        roots = [
+          ...startTyped,
+          ...roots.where((id) => !startTyped.contains(id)),
+        ];
+      }
+      if (roots.isEmpty && nodes.isNotEmpty) {
+        roots = [nodes[0]['id']?.toString() ?? ''];
+      }
+
+      // Step 3: Assign depth levels via BFS (handles DAGs, not just trees)
+      final Map<String, int> depthMap = {};
+      final bfsQueue = <String>[];
+      for (var r in roots) {
+        depthMap[r] = 0;
+        bfsQueue.add(r);
+      }
+      while (bfsQueue.isNotEmpty) {
+        final cur = bfsQueue.removeAt(0);
+        final curDepth = depthMap[cur] ?? 0;
+        for (var child in (childrenMap[cur] ?? [])) {
+          // Only update if we found a deeper path (longest path for proper layering)
+          final existing = depthMap[child];
+          if (existing == null || existing < curDepth + 1) {
+            depthMap[child] = curDepth + 1;
+            bfsQueue.add(child);
+          }
+        }
+      }
+
+      // Assign orphans to extra levels
+      int maxDepth = depthMap.isEmpty
+          ? 0
+          : depthMap.values.reduce((a, b) => a > b ? a : b);
+      for (var node in nodes) {
+        final id = node['id']?.toString() ?? '';
+        if (!depthMap.containsKey(id)) {
+          maxDepth++;
+          depthMap[id] = maxDepth;
+        }
+      }
+
+      // Step 4: Group nodes by depth
+      final Map<int, List<String>> levelNodes = {};
+      for (var entry in depthMap.entries) {
+        levelNodes.putIfAbsent(entry.value, () => []).add(entry.key);
+      }
+
+      // Step 5: Layout constants
+      const double nodeWidth = 220.0;
+      const double nodeHeight = 80.0;
+      const double horizontalGap = 60.0; // gap between siblings
+      const double verticalGap = 140.0; // gap between levels
+      const double canvasOriginX = 80.0;
+      const double canvasOriginY = 80.0;
+
+      // Step 6: Reingold-Tilford X assignment
+      // Compute subtree width for each node (bottom-up)
+      final Map<String, double> subtreeWidth = {};
+
+      // Process levels bottom-up
+      final sortedLevels = levelNodes.keys.toList()..sort((a, b) => b - a);
+      for (var level in sortedLevels) {
+        for (var nodeId in (levelNodes[level] ?? [])) {
+          final children = childrenMap[nodeId] ?? [];
+          if (children.isEmpty) {
+            subtreeWidth[nodeId] = nodeWidth;
+          } else {
+            // Sum of children subtree widths + gaps between them
+            double total = children.fold(
+              0.0,
+              (sum, c) => sum + (subtreeWidth[c] ?? nodeWidth),
+            );
+            total += (children.length - 1) * horizontalGap;
+            // Node must be at least as wide as itself
+            subtreeWidth[nodeId] = total < nodeWidth ? nodeWidth : total;
+          }
+        }
+      }
+
+      // Step 7: Assign X positions top-down
+      final Map<String, double> xPos = {};
+      final Map<String, double> yPos = {};
+
+      // Position roots side by side
+      double rootCursor = canvasOriginX;
+      for (var r in roots) {
+        xPos[r] =
+            rootCursor + (subtreeWidth[r] ?? nodeWidth) / 2 - nodeWidth / 2;
+        yPos[r] = canvasOriginY;
+        rootCursor += (subtreeWidth[r] ?? nodeWidth) + horizontalGap;
+      }
+
+      // BFS top-down to assign children positions
+      final posQueue = <String>[...roots];
+      final Set<String> positioned = {...roots};
+
+      while (posQueue.isNotEmpty) {
+        final cur = posQueue.removeAt(0);
+        final children = childrenMap[cur] ?? [];
+        if (children.isEmpty) continue;
+
+        final curX = xPos[cur] ?? canvasOriginX;
+        final curDepth = depthMap[cur] ?? 0;
+
+        // Center children under parent
+        double totalChildWidth = children.fold(
+          0.0,
+          (sum, c) => sum + (subtreeWidth[c] ?? nodeWidth),
+        );
+        totalChildWidth += (children.length - 1) * horizontalGap;
+
+        double childStartX = curX + nodeWidth / 2 - totalChildWidth / 2;
+
+        for (var child in children) {
+          if (!positioned.contains(child)) {
+            final childSubtree = subtreeWidth[child] ?? nodeWidth;
+            xPos[child] = childStartX + childSubtree / 2 - nodeWidth / 2;
+            yPos[child] =
+                canvasOriginY +
+                (depthMap[child] ?? curDepth + 1) * (nodeHeight + verticalGap);
+            positioned.add(child);
+            posQueue.add(child);
+          }
+          childStartX += (subtreeWidth[child] ?? nodeWidth) + horizontalGap;
+        }
+      }
+
+      // Assign any unpositioned nodes (orphans or cycles)
+      double orphanX = canvasOriginX;
+      double orphanY =
+          canvasOriginY + (maxDepth + 2) * (nodeHeight + verticalGap);
+      for (var node in nodes) {
+        final id = node['id']?.toString() ?? '';
+        if (!xPos.containsKey(id)) {
+          xPos[id] = orphanX;
+          yPos[id] = orphanY;
+          orphanX += nodeWidth + horizontalGap;
+        }
+      }
+
+      // Step 8: Build node lookup for text/type
+      final Map<String, Map<String, dynamic>> nodeDataMap = {};
+      for (var node in nodes) {
+        nodeDataMap[node['id']?.toString() ?? ''] = node;
+      }
+
+      // Step 9: Create Firestore elements with computed positions
+      for (var node in nodes) {
+        final oldId = node['id']?.toString() ?? '';
+        final newId = nodeIdMap[oldId] ?? uuid.v4();
+        final nodeData = nodeDataMap[oldId] ?? {};
 
         final element = KramElementModel(
-          id: id,
-          text: node['text'] ?? 'Untitled',
-          type: node['type'] ?? 'process',
+          id: newId,
+          text: nodeData['text'] ?? 'Untitled',
+          type: nodeData['type'] ?? 'process',
           authorId: uid,
-          x: currentX,
-          y: currentY,
+          x: xPos[oldId] ?? canvasOriginX,
+          y: yPos[oldId] ?? canvasOriginY,
           width: nodeWidth,
           height: nodeHeight,
         );
 
         newElements.add(element);
-        batch.set(elementsRef.doc(id), element.toMap());
-
-        currentX += nodeWidth + paddingX;
-        nodesInRow++;
-        if (nodesInRow >= maxNodesPerRow) {
-          nodesInRow = 0;
-          currentX = 100.0;
-          currentY += nodeHeight + paddingY;
-        }
+        batch.set(elementsRef.doc(newId), element.toMap());
       }
 
-      for (var edge in edges) {
-        final id = edge['id']?.toString() ?? uuid.v4();
-        final edgeModel = KramEdgeModel(
-          id: id,
-          fromId: edge['fromId'] ?? '',
-          toId: edge['toId'] ?? '',
-          fromAnchor: _parseAnchor(edge['fromAnchor']),
-          toAnchor: _parseAnchor(edge['toAnchor']),
-          authorId: uid,
-        );
-        if (edgeModel.fromId.isNotEmpty && edgeModel.toId.isNotEmpty) {
+      // Create edges with remapped IDs (using deduplicated validEdges)
+      for (var edge in validEdges) {
+        final oldFromId = edge['fromId']?.toString() ?? '';
+        final oldToId = edge['toId']?.toString() ?? '';
+        final newFromId = nodeIdMap[oldFromId];
+        final newToId = nodeIdMap[oldToId];
+
+        if (newFromId != null && newToId != null) {
+          final id = uuid.v4();
+          final edgeModel = KramEdgeModel(
+            id: id,
+            fromId: newFromId,
+            toId: newToId,
+            fromAnchor: _parseAnchor(edge['fromAnchor']),
+            toAnchor: _parseAnchor(edge['toAnchor']),
+            authorId: uid,
+          );
           newEdges.add(edgeModel);
           batch.set(edgesRef.doc(id), edgeModel.toMap());
         }
@@ -475,22 +706,25 @@ class KramController extends GetxController {
       await roomRef.update({
         'generationContext': FieldValue.delete(),
         'generationTopic': FieldValue.delete(),
+        'flowchartType': FieldValue.delete(),
       });
     } catch (e) {
       print('Error generating AI Kram: $e');
       final errorElement = KramElementModel(
-          id: 'error',
-          text: 'AI generation failed. Tap to edit.',
-          type: 'process',
-          authorId: uid,
-          x: 100,
-          y: 100,
-          width: 200,
-          height: 80);
+        id: 'error',
+        text: 'AI generation failed. Tap to edit.',
+        type: 'process',
+        authorId: uid,
+        x: 100,
+        y: 100,
+        width: 200,
+        height: 80,
+      );
       await elementsRef.doc('error').set(errorElement.toMap());
       await roomRef.update({
         'generationContext': FieldValue.delete(),
         'generationTopic': FieldValue.delete(),
+        'flowchartType': FieldValue.delete(),
       });
     } finally {
       isGeneratingAI.value = false;
@@ -531,13 +765,16 @@ class KramController extends GetxController {
   }
 
   Future<void> updateElementPosition(
-      String id, Offset newPosition, Offset oldPosition) async {
+    String id,
+    Offset newPosition,
+    Offset oldPosition,
+  ) async {
     if (selectedElementIds.isEmpty || selectedElementIds.length == 1) {
-      await elementsRef
-          .doc(id)
-          .update({'x': newPosition.dx, 'y': newPosition.dy});
-      _pushToUndoStack(
-          ElementMove(id, newPosition, oldPosition, this));
+      await elementsRef.doc(id).update({
+        'x': newPosition.dx,
+        'y': newPosition.dy,
+      });
+      _pushToUndoStack(ElementMove(id, newPosition, oldPosition, this));
     }
   }
 
@@ -572,8 +809,9 @@ class KramController extends GetxController {
     }
 
     final connectedEdges = edges
-        .where((e) =>
-            idsToDelete.contains(e.fromId) || idsToDelete.contains(e.toId))
+        .where(
+          (e) => idsToDelete.contains(e.fromId) || idsToDelete.contains(e.toId),
+        )
         .toList();
     for (var edge in connectedEdges) {
       deletedEdges.add(edge);
@@ -581,13 +819,16 @@ class KramController extends GetxController {
     }
 
     await batch.commit();
-    _pushToUndoStack(
-        DeleteBatchMemento(deletedElements, deletedEdges, this));
+    _pushToUndoStack(DeleteBatchMemento(deletedElements, deletedEdges, this));
     clearSelection();
   }
 
-  Future<void> addEdge(String fromId, AnchorSide fromAnchor, String toId,
-      AnchorSide toAnchor) async {
+  Future<void> addEdge(
+    String fromId,
+    AnchorSide fromAnchor,
+    String toId,
+    AnchorSide toAnchor,
+  ) async {
     final id = Uuid().v4();
     final edge = KramEdgeModel(
       id: id,
@@ -609,6 +850,50 @@ class KramController extends GetxController {
     _pushToUndoStack(DeleteEdgeMemento(edge, this));
   }
 
+  // --- NOTE OPERATIONS ---
+
+  Future<void> addNote(String text, Offset position) async {
+    final id = Uuid().v4();
+    final note = KramNoteModel(
+      id: id,
+      text: text,
+      authorId: uid,
+      x: position.dx,
+      y: position.dy,
+    );
+    await notesRef.doc(id).set(note.toMap());
+  }
+
+  Future<void> updateNotePosition(String id, Offset newPosition) async {
+    await notesRef.doc(id).update({'x': newPosition.dx, 'y': newPosition.dy});
+  }
+
+  Future<void> updateNoteText(String id, String text) async {
+    await notesRef.doc(id).update({'text': text});
+  }
+
+  Future<void> deleteNote(String id) async {
+    await notesRef.doc(id).delete();
+  }
+
+  // --- COMMENT OPERATIONS ---
+
+  Future<void> addComment(String text, {String? elementId}) async {
+    final id = Uuid().v4();
+    final comment = KramCommentModel(
+      id: id,
+      text: text,
+      authorId: uid,
+      timestamp: DateTime.now(),
+      elementId: elementId,
+    );
+    await commentsRef.doc(id).set(comment.toMap());
+  }
+
+  Future<void> deleteComment(String id) async {
+    await commentsRef.doc(id).delete();
+  }
+
   Future<void> clearAll() async {
     final batch = _firestore.batch();
     final List<KramElementModel> allElements = List.from(elements);
@@ -627,7 +912,9 @@ class KramController extends GetxController {
   // --- COLLABORATOR MANAGEMENT ---
 
   Future<void> _updateCollaborators(
-      String ownerId, List<String> collaboratorIds) async {
+    String ownerId,
+    List<String> collaboratorIds,
+  ) async {
     final allIds = {ownerId, ...collaboratorIds};
     final List<CollaboratorModel> loadedCollaborators = [];
     for (final id in allIds) {
@@ -635,8 +922,9 @@ class KramController extends GetxController {
       try {
         final userSnap = await _firestore.collection('users').doc(id).get();
         if (userSnap.exists) {
-          loadedCollaborators.add(CollaboratorModel.fromFirestore(userSnap,
-              isOwner: id == ownerId));
+          loadedCollaborators.add(
+            CollaboratorModel.fromFirestore(userSnap, isOwner: id == ownerId),
+          );
         }
       } catch (e) {
         print('Error loading user $id: $e');
@@ -658,14 +946,16 @@ class KramController extends GetxController {
         final userSnap = await _firestore.collection('users').doc(id).get();
         if (userSnap.exists) {
           loadedBannedUsers.add(
-              CollaboratorModel.fromFirestore(userSnap, isOwner: false));
+            CollaboratorModel.fromFirestore(userSnap, isOwner: false),
+          );
         }
       } catch (e) {
         print('Error loading banned user $id: $e');
       }
     }
-    loadedBannedUsers
-        .sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    loadedBannedUsers.sort(
+      (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+    );
     bannedUsers.assignAll(loadedBannedUsers);
   }
 
@@ -677,7 +967,7 @@ class KramController extends GetxController {
     try {
       await roomRef.update({
         'collaborators': FieldValue.arrayRemove([userId]),
-        'bannedUsers': FieldValue.arrayUnion([userId])
+        'bannedUsers': FieldValue.arrayUnion([userId]),
       });
     } catch (e) {
       throw Exception('Failed to remove collaborator.');
@@ -689,7 +979,7 @@ class KramController extends GetxController {
       throw Exception('Only the owner can manage the ban list.');
     try {
       await roomRef.update({
-        'bannedUsers': FieldValue.arrayRemove([userId])
+        'bannedUsers': FieldValue.arrayRemove([userId]),
       });
     } catch (e) {
       throw Exception('Failed to unblock collaborator.');
@@ -739,11 +1029,12 @@ class KramController extends GetxController {
   }
 
   void _exportNodeRecursive(
-      KramElementModel node,
-      StringBuffer buffer,
-      int level,
-      Map<String, KramElementModel> elementMap,
-      Set<String> visited) {
+    KramElementModel node,
+    StringBuffer buffer,
+    int level,
+    Map<String, KramElementModel> elementMap,
+    Set<String> visited,
+  ) {
     if (visited.contains(node.id)) return;
     visited.add(node.id);
 
@@ -895,8 +1186,10 @@ class BatchMoveMemento implements IKramMemento {
   void execute() {
     final batch = ctrl._firestore.batch();
     for (var move in moves) {
-      batch.update(ctrl.elementsRef.doc(move.id),
-          {'x': move.newPos.dx, 'y': move.newPos.dy});
+      batch.update(ctrl.elementsRef.doc(move.id), {
+        'x': move.newPos.dx,
+        'y': move.newPos.dy,
+      });
     }
     batch.commit();
   }
@@ -905,8 +1198,10 @@ class BatchMoveMemento implements IKramMemento {
   void unexecute() {
     final batch = ctrl._firestore.batch();
     for (var move in moves) {
-      batch.update(ctrl.elementsRef.doc(move.id),
-          {'x': move.oldPos.dx, 'y': move.oldPos.dy});
+      batch.update(ctrl.elementsRef.doc(move.id), {
+        'x': move.oldPos.dx,
+        'y': move.oldPos.dy,
+      });
     }
     batch.commit();
   }
